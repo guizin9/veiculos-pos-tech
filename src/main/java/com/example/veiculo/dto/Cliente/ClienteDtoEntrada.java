@@ -1,7 +1,7 @@
 package com.example.veiculo.dto.Cliente;
 
 import com.example.veiculo.model.Cliente;
-import jakarta.persistence.Column;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -36,6 +36,7 @@ public record ClienteDtoEntrada(
         String cep,
 
         @Size(min = 3, max = 15, message = "o tamanho do conteúdo do campo celular deve ser entre 3 e 15 posições")
+        @JsonAlias("celular")
         String celula,
 
         @Size(min = 3, max = 15, message = "o tamanho do conteúdo do campo fone fixo deve ser entre 3 e 15 posições")

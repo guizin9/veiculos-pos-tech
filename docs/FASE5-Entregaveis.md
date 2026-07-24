@@ -1,7 +1,7 @@
 # FASE 5 — Plataforma de Revenda de Veículos
 
 **Projeto:** API de Revenda de Veículos (Spring Boot 4.1 / Java 21 / PostgreSQL)
-**Repositório:** _<inserir link do GitHub aqui>_
+**Repositório:** https://github.com/guizin9/veiculos-pos-tech
 **Autor:** _<seu nome>_
 
 Este documento reúne os entregáveis solicitados na FASE 5:
@@ -38,6 +38,29 @@ A partir desse ponto, a FASE 5 define **como esse sistema deve rodar em nuvem, c
 
 ---
 
+## Implementação realizada (evidências no código)
+
+> Este bloco descreve **o que foi implementado de fato** no repositório, complementando a proposta de arquitetura nas seções seguintes.
+
+| Requisito FASE 5 | Status | Evidência |
+|---|---|---|
+| Código de pagamento fictício | ✅ | `Pagamento`, `PagamentoService`, `POST /pagamentos/pagar/{codigo}` |
+| Expiração de reserva | ✅ | `ReservaExpiracaoScheduler`, `app.reserva.minutos-expiracao` |
+| Documentação de retirada | ✅ | `DocumentacaoRetiradaService`, código `DOC-XXXXXXXX` |
+| Autenticação JWT + RBAC | ✅ | `AuthController`, `SecurityConfiguration`, `@PreAuthorize` |
+| LGPD (CPF, mascaramento, logs) | ✅ | `CpfUtil`, `ClienteDtoSaida`, SQL em WARN |
+| SAGA orquestrada | ✅ | `CompraSagaOrchestrator`, `SagaCompra`, compensações |
+| Pagamento antes da venda | ✅ | `validarPodeConfirmarVenda()` |
+| Mensageria SQS + Lambda | ✅ | `SqsEventPublisher`, LocalStack, Lambda Node.js |
+| Docker Compose | ✅ | `docker-compose.yml`, `Dockerfile` |
+| Actuator + Swagger | ✅ | `/actuator/health`, `/swagger-ui.html` |
+| Testes automatizados | ✅ | 8 testes (`CompraFluxoIntegrationTest`, SAGA unitário) |
+| Deploy App Runner (nuvem real) | 📋 Documentado | `infra/apprunner/DEPLOY.md` — execução manual |
+
+**Decisão arquitetural:** manter **um único monólito Spring Boot**. A SAGA é orquestrada internamente; SQS/Lambda servem como integração assíncrona e evidência serverless, sem dividir em microserviços.
+
+---
+
 ## 1. Desenho da Arquitetura em Nuvem
 
 ### 1.1. Princípios adotados
@@ -48,7 +71,9 @@ A partir desse ponto, a FASE 5 define **como esse sistema deve rodar em nuvem, c
 
 > A referência de provedor é a **AWS**, mas há equivalência direta em Azure e GCP (tabela na seção 1.5).
 
-### 1.2. Diagrama da arquitetura (AWS)
+### 1.2. Diagrama da arquitetura (AWS — proposta de produção)
+
+> **Implementação adotada:** App Runner (em vez de ECS Fargate) + RDS + SQS + Lambda — mais simples e barato para demonstração acadêmica. Localmente: Docker Compose + LocalStack simula os mesmos serviços.
 
 ```mermaid
 flowchart TB
@@ -58,22 +83,21 @@ flowchart TB
     subgraph Edge["Borda / Segurança de entrada"]
         WAF["AWS WAF + Shield"]
         APIGW["Amazon API Gateway (HTTPS/TLS)"]
-        Cognito["Amazon Cognito (Autenticação/JWT)"]
+        Cognito["Amazon Cognito (Autenticação/JWT) — ou JWT próprio no App Runner"]
     end
 
     subgraph Compute["Aplicação (containers gerenciados)"]
-        Fargate["API Spring Boot em ECS Fargate (Auto Scaling)"]
+        AppRunner["API Spring Boot em AWS App Runner (Auto Scaling)"]
     end
 
     subgraph Orchestration["Orquestração da compra (SAGA)"]
-        SFN["AWS Step Functions (orquestrador SAGA)"]
-        LPay["Lambda: gera código de pagamento"]
-        LDoc["Lambda: emite documentação de retirada"]
+        SagaMono["CompraSagaOrchestrator (dentro do monólito)"]
         SQS["Amazon SQS (filas + DLQ)"]
+        LPay["Lambda: gera código de pagamento (evidência serverless)"]
     end
 
     subgraph Data["Dados (gerenciado)"]
-        Aurora["Amazon Aurora PostgreSQL Serverless v2"]
+        RDS["Amazon RDS PostgreSQL"]
         Secrets["AWS Secrets Manager"]
         KMS["AWS KMS (chaves de criptografia)"]
     end
@@ -81,25 +105,31 @@ flowchart TB
     subgraph Observ["Segurança & Observabilidade"]
         CW["CloudWatch (logs/métricas/alarmes)"]
         CT["CloudTrail (auditoria de API)"]
-        GD["GuardDuty (detecção de ameaças)"]
     end
 
     User --> UX --> CloudFront --> WAF --> APIGW
     APIGW --> Cognito
-    APIGW --> Fargate
-    Fargate --> SFN
-    SFN --> LPay
-    SFN --> LDoc
-    SFN --> SQS
-    Fargate --> Aurora
-    LPay --> Aurora
-    LDoc --> Aurora
-    Fargate --> Secrets
+    APIGW --> AppRunner
+    AppRunner --> SagaMono
+    SagaMono --> SQS
+    SQS --> LPay
+    AppRunner --> RDS
+    AppRunner --> Secrets
     Secrets --> KMS
-    Aurora --> KMS
-    Fargate --> CW
+    RDS --> KMS
+    AppRunner --> CW
     APIGW --> CT
-    Fargate --> GD
+```
+
+### 1.2.1. Diagrama local (Docker Compose + LocalStack)
+
+```mermaid
+flowchart LR
+    Dev["Desenvolvedor"] --> App["Spring Boot :8083"]
+    App --> PG["PostgreSQL :5433"]
+    App --> LS["LocalStack :4566"]
+    LS --> SQS2["SQS veiculos-eventos"]
+    SQS2 --> Lambda2["Lambda gerar-codigo-pagamento"]
 ```
 
 ### 1.3. Serviços escolhidos e justificativas
@@ -110,8 +140,8 @@ flowchart TB
 | **Proteção de borda** | **AWS WAF + Shield** | Bloqueia OWASP Top 10 (SQLi, XSS), rate limiting e mitigação de DDoS antes de chegar à aplicação. Gerenciado, com regras atualizadas pela AWS. |
 | **API Gateway** | **Amazon API Gateway** | Ponto único de entrada, encerra TLS, aplica *throttling*, valida token JWT e integra nativamente com Cognito. Reduz superfície de exposição da aplicação. |
 | **Autenticação/Autorização** | **Amazon Cognito** | Gerência de identidade gerenciada (login, MFA, emissão de JWT/OAuth2). Essencial para a regra "venda somente para compradores cadastrados". Evita implementar e operar auth próprio. |
-| **Aplicação** | **Amazon ECS Fargate** | A aplicação é um Spring Boot (JVM) já pronto; Fargate roda containers **sem gerenciar servidores**, com auto scaling e alta disponibilidade multi‑AZ. Preferido a EC2 (operação) e mais adequado que Lambda para uma JVM de longa duração (evita *cold start* e limite de 15 min). |
-| **Orquestração da compra** | **AWS Step Functions** | Orquestra a SAGA (reserva → pagamento → venda → retirada) com controle de estado, *timeouts*, *retries* e passos de compensação nativos. (Detalhes na seção 3.) |
+| **Aplicação** | **AWS App Runner** *(implementado)* / ECS Fargate *(proposta alternativa)* | App Runner é o serviço mais simples para deploy de container Spring Boot: HTTPS gerenciado, auto scaling e custo baixo (~US$ 6–16/mês). Fargate oferece mais controle de rede/VPC para produção enterprise. |
+| **Orquestração da compra** | **`CompraSagaOrchestrator` no monólito** + SQS | Orquestração interna garante consistência sem microserviços; SQS desacopla eventos assíncronos. Step Functions permanece como evolução para fluxos multi-serviço. |
 | **Funções pontuais** | **AWS Lambda** | Tarefas curtas e event‑driven: gerar código de pagamento e emitir documentação de retirada. Serverless, escala a zero, custo por execução. |
 | **Mensageria** | **Amazon SQS (+ DLQ)** | Desacopla passos assíncronos (ex.: confirmação de pagamento) e garante processamento *at‑least‑once*; a *Dead Letter Queue* isola mensagens com falha para reprocesso. |
 | **Banco de dados** | **Amazon Aurora PostgreSQL Serverless v2** | Compatível com o PostgreSQL já usado no projeto. Gerenciado (backup, patch, réplicas), escala automaticamente a capacidade e oferece criptografia em repouso via KMS. |
@@ -174,16 +204,22 @@ Sob a ótica da **LGPD**, todos os campos da entidade `Cliente` são **dados pes
 
 ### 2.3. Políticas de acesso a dados implementadas / recomendadas
 
-1. **Autenticação obrigatória (Cognito + JWT):** hoje o `SecurityConfiguration` está com `anyRequest().permitAll()` (aberto). Deve passar a exigir token válido em todos os endpoints, exceto catálogo público de veículos à venda.
-2. **Autorização por papel (RBAC):**
-   - `CLIENTE`: cria/consulta apenas as próprias reservas; não vê dados de outros clientes.
-   - `VENDEDOR`/`OPERADOR`: opera estoque, confirma venda e retirada.
-   - `ADMIN`: gestão completa e acesso a auditoria.
-   O projeto já habilita `@EnableMethodSecurity`; basta anotar os métodos (`@PreAuthorize`).
-3. **Regra de negócio "venda só para cadastrado":** já validada em `ReservaVendaVeiculoNegocioValidator` (`clienteRepository.existsById`). Deve ser reforçada com o vínculo ao usuário autenticado.
-4. **Princípio do menor privilégio (IAM):** cada serviço (Fargate, Lambdas) recebe apenas as permissões necessárias no banco e nas filas.
-5. **Mascaramento na saída:** DTOs de saída devem mascarar CPF (`***.***.***-12`) e contatos para perfis sem necessidade de vê‑los; log **nunca** registra dado pessoal em claro.
-6. **Segregação de rede:** banco em subnet privada, acessível somente pela aplicação.
+**Implementado no código:**
+
+1. **Autenticação JWT (Spring Security OAuth2 Resource Server):** `POST /auth/login` emite token HMAC; rotas protegidas exigem `Authorization: Bearer`. Exceções públicas: catálogo `/veiculos/a-venda`, health, Swagger.
+2. **Autorização por papel (RBAC):** `@PreAuthorize` nos endpoints sensíveis (pagamentos, confirmação de venda). Papéis: `CLIENTE`, `VENDEDOR`, `OPERADOR`, `ADMIN`.
+3. **Regra "venda só para cadastrado":** `ReservaVendaVeiculoNegocioValidator` exige cliente existente e **ativo**.
+4. **Mascaramento na saída:** `ClienteDtoSaida` mascara CPF (`***.***.***-XX`).
+5. **Logs sem PII:** `show-sql: false`, Hibernate SQL/binder em WARN.
+6. **Segredos externalizados:** `DB_*`, `JWT_SECRET`, `AWS_*` via variáveis de ambiente.
+
+**Recomendado para produção (evolução):**
+
+1. **Cognito** em vez de JWT próprio (MFA, gestão de usuários).
+2. **Vínculo `Usuario` ↔ `Cliente`** para que `CLIENTE` acesse apenas suas reservas.
+3. **IAM least privilege** por serviço (App Runner role, Lambda role).
+4. **Criptografia de campo** (KMS) para CPF e códigos de pagamento.
+5. **Segregação de rede:** RDS em subnet privada.
 
 ### 2.4. Políticas de segurança da operação (tratamento dos dados)
 
@@ -200,12 +236,12 @@ Sob a ótica da **LGPD**, todos os campos da entidade `Cliente` são **dados pes
 
 | # | Risco | Impacto | Mitigação |
 |---|---|---|---|
-| 1 | **API aberta** (`permitAll`) expõe dados pessoais | Alto | Habilitar autenticação (Cognito/JWT) + autorização por método (`@PreAuthorize`). |
-| 2 | Vazamento de **CPF/endereço** | Alto (LGPD, fraude) | Criptografia de campo (KMS), mascaramento na saída, acesso mínimo, logs sem PII. |
-| 3 | **SQL Injection / XSS** | Alto | JPA/consultas parametrizadas (já usado), Bean Validation (já usado) e WAF na borda. |
-| 4 | **Credenciais no código/config** | Alto | Secrets Manager + rotação; remover senha do `application.yml`. |
-| 5 | **Reserva concorrente** (dois clientes no mesmo veículo) | Médio | Trava otimista/pessimista no `Veiculo` + verificação de status na reserva (já há checagem de status "R"/"V"). |
-| 6 | **Pagamento não efetuado / desistência** | Médio | *Timeout* de reserva na SAGA com compensação (libera veículo). |
+| 1 | ~~**API aberta**~~ | ~~Alto~~ | ✅ JWT + RBAC implementados. Pendente: vínculo usuário↔cliente. |
+| 2 | Vazamento de **CPF/endereço** | Alto (LGPD, fraude) | ✅ Mascaramento na saída; evolução: criptografia KMS em repouso. |
+| 3 | **SQL Injection / XSS** | Alto | JPA parametrizado + Bean Validation; WAF na borda (produção). |
+| 4 | ~~**Credenciais no código/config**~~ | ~~Alto~~ | ✅ Variáveis de ambiente; evolução: Secrets Manager com rotação. |
+| 5 | **Reserva concorrente** | Médio | Checagem de status R/V + transação; evolução: lock otimista. |
+| 6 | ~~**Pagamento não efetuado / desistência**~~ | ~~Médio~~ | ✅ Scheduler de expiração + compensação SAGA. |
 | 7 | **Perda de dados** | Alto | Backups automatizados, multi‑AZ, testes de restauração. |
 | 8 | **Acesso indevido interno** | Médio | RBAC, IAM least privilege, CloudTrail e revisão de acessos. |
 | 9 | **Ataque de negação de serviço** | Médio | WAF + Shield + throttling no API Gateway. |
@@ -219,22 +255,24 @@ Sob a ótica da **LGPD**, todos os campos da entidade `Cliente` são **dados pes
 
 O processo de compra envolve **múltiplos passos e serviços** (reserva de estoque, geração de código de pagamento, confirmação de pagamento, baixa de estoque, emissão de documentação) que precisam ser **consistentes** mesmo com falhas parciais (outro cliente reservou antes, pagamento não efetuado, desistência). Em uma arquitetura distribuída/serverless não há uma transação ACID única entre serviços; por isso usa‑se o padrão **SAGA**, uma sequência de transações locais em que cada passo tem uma **transação de compensação** para desfazer efeitos anteriores.
 
-### 3.2. Tipo de SAGA recomendado: **Orquestração**
+### 3.2. Tipo de SAGA adotado: **Orquestração interna**
 
-Existem dois estilos:
+**Escolha implementada: SAGA por Orquestração, com `CompraSagaOrchestrator` dentro do monólito Spring Boot.**
 
-- **Coreografia:** cada serviço reage a eventos, sem coordenador central. Simples para poucos passos, mas o fluxo fica "espalhado", difícil de monitorar e com risco de dependências cíclicas conforme cresce.
-- **Orquestração:** um **orquestrador central** comanda a ordem dos passos e dispara as compensações.
+A proposta original usava AWS Step Functions como orquestrador externo. Para manter um único deploy (requisito do case) e simplificar a demonstração, a orquestração foi implementada **no próprio monólito**, com:
 
-**Escolha: SAGA por Orquestração, usando AWS Step Functions.**
+- Entidade `SagaCompra` persistindo etapa e status.
+- Validações de transição e idempotência por ordinal de etapa.
+- Compensações em cancelamento (`CANCELADA`) e expiração (`EXPIRADA`).
+- Eventos publicados em **Amazon SQS** (LocalStack local) para desacoplamento e evidência de mensageria.
 
-**Justificativa:**
+**Justificativa (mantida da proposta original):**
 
-1. **Fluxo com estados bem definidos e sequenciais** (reserva → pagamento → venda → retirada) — encaixa naturalmente numa máquina de estados.
-2. **Compensações explícitas e críticas** (liberar veículo, cancelar reserva, expirar código de pagamento) — mais seguras e fáceis de garantir com um coordenador central.
-3. **Timeouts e desistência** — a reserva precisa expirar se o pagamento não ocorrer; Step Functions oferece *wait/timeout* e *retry* nativos.
-4. **Observabilidade e auditoria** — o orquestrador dá visão ponta a ponta de cada compra (essencial para suporte e para a trilha de auditoria de dados pessoais).
-5. **Evolução** — novos passos (ex.: análise antifraude) entram sem reescrever a lógica distribuída de eventos.
+1. Fluxo com estados bem definidos e sequenciais.
+2. Compensações explícitas e críticas.
+3. Timeouts e desistência via scheduler.
+4. Observabilidade via entidade `SagaCompra` + logs + eventos SQS.
+5. Evolução futura para Step Functions sem reescrever a lógica de negócio.
 
 ### 3.3. Fluxo da SAGA (com compensações)
 
@@ -267,7 +305,16 @@ stateDiagram-v2
 | **Confirmar venda** | `Reserva.status = V`, `Veiculo.status = V` | Reverter para `A`/`C` se etapa seguinte falhar |
 | **Retirada + documentação** | `retirado = S`, `dtRetirada` | (passo final; sem compensação — emite documento) |
 
-Esse mapeamento corresponde diretamente aos métodos já existentes em `ReservaVendaVeiculoService` (`incluirReserva`, `confirmaVenda`, `retiraVeiculo`, `cancela`) e aos estados de `Veiculo` (`ativaVeiculo`, `reservaVeiculo`, `vendaVeiculo`) — a orquestração apenas coordena esses passos com timeouts e compensações automáticas.
+Esse mapeamento corresponde aos métodos em `ReservaVendaVeiculoService` e `PagamentoService`, coordenados por `CompraSagaOrchestrator`:
+
+| Classe / método | Etapa SAGA |
+|---|---|
+| `incluirReserva()` | `RESERVA` → `PAGAMENTO_GERADO` |
+| `PagamentoService.confirmarPagamento()` | `PAGAMENTO_CONFIRMADO` |
+| `confirmaVenda()` | `VENDA` (exige pagamento PAGO) |
+| `retiraVeiculo()` | `DOCUMENTACAO` → `RETIRADA` |
+| `cancela()` | `CANCELADA` (compensação) |
+| `PagamentoService.expirarVencidos()` | `EXPIRADA` (compensação) |
 
 ### 3.5. Garantias
 
@@ -279,8 +326,10 @@ Esse mapeamento corresponde diretamente aos métodos já existentes em `ReservaV
 
 ## 4. Checklist de entrega
 
-- [ ] Link do GitHub do código no topo deste documento.
+- [x] Link do GitHub do código no topo deste documento.
 - [ ] Exportar este arquivo para **PDF** (com os diagramas renderizados).
 - [x] Desenho da arquitetura (serverless/gerenciados + segurança + justificativas).
 - [x] Relatório de segurança de dados.
 - [x] Relatório de orquestração SAGA.
+- [x] Implementação funcional (pagamento, SAGA, JWT, Docker, testes).
+- [ ] Deploy App Runner com URL pública (evidência em nuvem — ver `infra/apprunner/DEPLOY.md`).

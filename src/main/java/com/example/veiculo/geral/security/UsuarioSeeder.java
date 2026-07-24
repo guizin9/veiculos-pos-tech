@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 
 import java.time.OffsetDateTime;
 import java.util.Set;
@@ -19,6 +20,7 @@ import java.util.Set;
  * e devem ser trocadas em produção (via variáveis de ambiente / Secrets Manager).
  */
 @Component
+@Profile("!test")
 @RequiredArgsConstructor
 public class UsuarioSeeder implements CommandLineRunner {
 

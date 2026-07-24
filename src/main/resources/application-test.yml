@@ -1,0 +1,30 @@
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:h2:mem:veiculos;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  task:
+    scheduling:
+      enabled: false
+
+app:
+  jwt:
+    secret: test-jwt-secret-key-with-at-least-32-chars!!
+    expiracao-min: 120
+  aws:
+    enabled: false
+    sqs:
+      enabled: false
+  reserva:
+    minutos-expiracao: 30
+    intervalo-verificacao-ms: 999999999

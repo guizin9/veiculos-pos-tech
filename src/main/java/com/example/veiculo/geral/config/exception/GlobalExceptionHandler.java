@@ -34,12 +34,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             "Ocorreu um erro interno inesperado no sistema. Tente novamente e se o problema persistir, entre em contato com o administrador do sistema.";
     @Autowired private MessageSource messageSource;
 
-    @ExceptionHandler(Exception.class)
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public ErroRespostaDto handleException(Exception e) {
-        return ErroRespostaDto.conflito(e.getMessage());
-    }
-
     @ExceptionHandler(RegistroDuplicadoException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErroRespostaDto handleRegistroDuplicadoException(RegistroDuplicadoException e) {

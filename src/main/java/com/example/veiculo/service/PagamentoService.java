@@ -2,6 +2,9 @@ package com.example.veiculo.service;
 
 import com.example.veiculo.geral.config.exception.personal.ErroGeralException;
 import com.example.veiculo.geral.config.exception.personal.RegistroNaoEncontradoException;
+import com.example.veiculo.messaging.SagaEvent;
+import com.example.veiculo.messaging.SagaEventBus;
+import com.example.veiculo.messaging.SagaEventType;
 import com.example.veiculo.model.Pagamento;
 import com.example.veiculo.model.ReservaVendaVeiculo;
 import com.example.veiculo.model.StatusPagamento;
@@ -9,6 +12,7 @@ import com.example.veiculo.model.Veiculo;
 import com.example.veiculo.repository.PagamentoRepository;
 import com.example.veiculo.repository.ReservaVendaVeiculoRepository;
 import com.example.veiculo.repository.VeiculoRepository;
+import com.example.veiculo.saga.CompraSagaOrchestrator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -26,6 +30,8 @@ public class PagamentoService {
     private final PagamentoRepository pagamentoRepository;
     private final ReservaVendaVeiculoRepository reservaVendaVeiculoRepository;
     private final VeiculoRepository veiculoRepository;
+    private final SagaEventBus sagaEventBus;
+    private final CompraSagaOrchestrator sagaOrchestrator;
 
     @Value("${app.reserva.minutos-expiracao:30}")
     private long minutosExpiracao;
@@ -91,7 +97,15 @@ public class PagamentoService {
         }
         pagamento.pago();
         pagamento.setDataPagamento(OffsetDateTime.now());
-        return pagamentoRepository.save(pagamento);
+        var salvo = pagamentoRepository.save(pagamento);
+        var reserva = salvo.getReserva();
+        if (reserva != null) {
+            sagaOrchestrator.registrarPagamentoConfirmado(reserva.getId());
+            sagaEventBus.publicar(SagaEvent.of(SagaEventType.PAGAMENTO_CONFIRMADO,
+                    reserva.getId(), reserva.getCliente().getId(), reserva.getVeiculo().getId(),
+                    salvo.getCodigo()));
+        }
+        return salvo;
     }
 
     @Transactional
@@ -139,6 +153,9 @@ public class PagamentoService {
                     veiculoRepository.save(v);
                 });
             }
+            sagaEventBus.publicar(SagaEvent.of(SagaEventType.RESERVA_EXPIRADA,
+                    reserva.getId(), reserva.getCliente().getId(), reserva.getVeiculo().getId()));
+            sagaOrchestrator.compensarExpiracao(reserva.getId());
         }
     }
 

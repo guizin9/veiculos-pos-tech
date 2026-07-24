@@ -10,12 +10,15 @@ Documento de referência técnica do projeto. Complementa o [`README.md`](../REA
 4. [Modelo de dados](#4-modelo-de-dados)
 5. [Máquinas de estado](#5-máquinas-de-estado)
 6. [Regras de negócio](#6-regras-de-negócio)
-7. [Referência da API](#7-referência-da-api)
-8. [Contratos (DTOs)](#8-contratos-dtos)
-9. [Tratamento de erros](#9-tratamento-de-erros)
-10. [Configuração](#10-configuração)
-11. [Segurança](#11-segurança)
-12. [Análise técnica e pontos de atenção](#12-análise-técnica-e-pontos-de-atenção)
+7. [Orquestração SAGA interna](#7-orquestração-saga-interna)
+8. [Referência da API](#8-referência-da-api)
+9. [Contratos (DTOs)](#9-contratos-dtos)
+10. [Tratamento de erros](#10-tratamento-de-erros)
+11. [Configuração](#11-configuração)
+12. [Segurança](#12-segurança)
+13. [Nuvem e mensageria](#13-nuvem-e-mensageria)
+14. [Observabilidade](#14-observabilidade)
+15. [Análise técnica e pontos de atenção](#15-análise-técnica-e-pontos-de-atenção)
 
 ---
 
@@ -42,7 +45,11 @@ Pacote raiz: `com.example.veiculo`
 | `repository` | Interfaces Spring Data JPA; *native queries* para relatórios agregados. |
 | `model` | Entidades JPA. |
 | `dto.<Agregado>` | `...DtoEntrada` (records com Bean Validation) e `...DtoSaida`. |
-| `geral.config` | `SecurityConfiguration`, `Libs` (utilitários), exceções. |
+| `geral.config` | `SecurityConfiguration`, `AwsProperties`, `OpenApiConfiguration`, `CpfUtil`, exceções. |
+| `geral.security` | `TokenService`, `UsuarioDetailsService`, `UsuarioSeeder`. |
+| `saga` | `CompraSagaOrchestrator`, `SagaEtapa`, `SagaStatus`. |
+| `messaging` | `SagaEventBus`, `SqsEventPublisher`, `SqsEventConsumer`. |
+| `scheduler` | `ReservaExpiracaoScheduler` (expiração automática). |
 | `geral.config.exception` | `GlobalExceptionHandler`, `Problem`, `ProblemType`, exceções personalizadas. |
 | `geral.generic` | `GenerciController` (geração de header `Location`). |
 
@@ -108,7 +115,8 @@ sequenceDiagram
 |---|---|---|
 | `id` | Long | — |
 | `nome` | String(70), **único** | Pessoal |
-| `cpf` | String(15) | **Pessoal crítico** |
+| `cpf` | String(11), **único**, validado | **Pessoal crítico** — mascarado na saída |
+| `ativo` | Boolean | Cliente habilitado para compra |
 | `logradouro`,`numero`,`complemento`,`bairro`,`cidade`,`estado`,`cep` | String | Pessoal (endereço) |
 | `celular`,`foneFixo`,`email` | String | Pessoal (contato) |
 | `dtOpera` | OffsetDateTime | — |
@@ -127,6 +135,42 @@ sequenceDiagram
 | `dtOpera` | OffsetDateTime | data da operação |
 
 Métodos de conveniência da entidade: `reservaVeiculo()`, `vendaVeiculo()`, `cancelaVeiculo()`, `retiradaVeiculo()`.
+
+### Pagamento
+
+| `Pagamento` | Tipo | Observações |
+|---|---|---|
+| `id` | Long | PK |
+| `codigo` | String | `PAG-XXXXXXXX` (fictício) |
+| `valor` | BigDecimal | Valor da reserva |
+| `status` | StatusPagamento | `PENDENTE` / `PAGO` / `EXPIRADO` / `CANCELADO` |
+| `reserva` | ReservaVendaVeiculo | ManyToOne |
+| `dtGeracao`, `dtPagamento`, `dtExpiracao` | OffsetDateTime | Marcos temporais |
+
+### Documentação de retirada
+
+| `DocumentacaoRetirada` | Tipo | Observações |
+|---|---|---|
+| `codigo` | String | `DOC-XXXXXXXX` |
+| `status` | StatusDocumentacao | `GERADA` / `ENTREGUE` |
+| `reserva` | ReservaVendaVeiculo | ManyToOne |
+
+### SAGA de compra
+
+| `SagaCompra` | Tipo | Observações |
+|---|---|---|
+| `reservaId` | Long | FK lógica para a reserva |
+| `etapa` | SagaEtapa | Etapa atual da orquestração |
+| `status` | SagaStatus | `EM_ANDAMENTO` / `CONCLUIDA` / `COMPENSADA` |
+| `dtOperacao` | OffsetDateTime | Última transição |
+
+### Autenticação
+
+| `Usuario` | Tipo | Observações |
+|---|---|---|
+| `username` | String, único | Login |
+| `senha` | String | BCrypt |
+| `role` | Role | `ADMIN` / `VENDEDOR` / `OPERADOR` / `CLIENTE` |
 
 ## 5. Máquinas de estado
 
@@ -169,17 +213,45 @@ Concentradas em `ReservaVendaVeiculoNegocioValidator` e `ReservaVendaVeiculoServ
 - Mesmas validações de integridade; só permite alterar reservas com status `R`.
 
 **Confirmação de venda (`confirmaVenda`)**
-- Só permite quando status atual é `R`; grava `dtVenda`, `Reserva.status = V` e `Veiculo.status = V`.
+- Só permite quando status atual é `R`.
+- **`CompraSagaOrchestrator.validarPodeConfirmarVenda`** exige pagamento com status `PAGO`.
+- Grava `dtVenda`, `Reserva.status = V` e `Veiculo.status = V`.
 
 **Retirada (`retiraVeiculo`)**
-- Só permite quando status é `V` e ainda não retirado; marca `retirado = S`.
+- Só permite quando status é `V` e ainda não retirado; marca `retirado = S`, `dtRetirada`.
+- Gera `DocumentacaoRetirada` com código `DOC-XXXXXXXX`.
 
 **Cancelamento (`cancela`)**
-- Só permite quando status é `R` (ou `V`, conforme validação); grava `dtCancelamento`, `Reserva.status = C` e devolve o `Veiculo` para `A` (`ativaVeiculo`).
+- Só permite quando status é `R` ou `V`; grava `dtCancelamento`, `Reserva.status = C`, devolve `Veiculo` para `A`.
+- Cancela pagamento pendente associado.
 
-> As operações de compra usam `@Transactional`, garantindo atomicidade entre a atualização da reserva e do veículo.
+**Expiração (`PagamentoService.expirarVencidos`)**
+- Scheduler (`ReservaExpiracaoScheduler`) verifica pagamentos/reservas vencidos.
+- Marca pagamento `EXPIRADO`, cancela reserva e libera veículo (`A`).
+- SAGA registra etapa `EXPIRADA`.
 
-## 7. Referência da API
+> Operações de compra usam `@Transactional`; status do veículo é persistido explicitamente via `veiculoRepository.save()`.
+
+## 7. Orquestração SAGA interna
+
+A SAGA roda **dentro do monólito** via `CompraSagaOrchestrator`, sem microserviços. Eventos assíncronos são publicados em SQS (LocalStack/AWS) para evidência serverless.
+
+### Etapas (`SagaEtapa`)
+
+```
+RESERVA → PAGAMENTO_GERADO → PAGAMENTO_CONFIRMADO → VENDA → DOCUMENTACAO → RETIRADA
+                                    ↓ cancelamento / expiração
+                              CANCELADA / EXPIRADA (compensação)
+```
+
+### Garantias implementadas
+
+- **Idempotência:** reprocessar a mesma etapa não retrocede o estado.
+- **Pagamento antes da venda:** `validarPodeConfirmarVenda` bloqueia venda sem `PAGO`.
+- **Compensação:** cancelamento e expiração liberam o veículo e atualizam a SAGA.
+- **Eventos:** `SagaEventBus` publica `RESERVA_CRIADA`, `PAGAMENTO_GERADO`, `PAGAMENTO_CONFIRMADO`, `VENDA_CONFIRMADA`, `RETIRADA`, `CANCELADA`, `EXPIRADA` na fila SQS quando habilitada.
+
+## 8. Referência da API
 
 Base: `http://localhost:8083`
 
@@ -216,6 +288,25 @@ Base: `http://localhost:8083`
 | PUT | `/clientes/{id}` | Altera (204) |
 | DELETE | `/clientes/{id}` | Exclui (204) |
 
+### `/auth`
+
+| Método | Rota | Descrição |
+|---|---|---|
+| POST | `/auth/login` | Autentica e retorna JWT (público) |
+
+Corpo: `{ "username": "admin", "senha": "admin123" }`. Resposta inclui `token` e `tipo: Bearer`.
+
+### `/pagamentos`
+
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/pagamentos` | Lista pagamentos |
+| GET | `/pagamentos/{id}` | Obtém por id |
+| GET | `/pagamentos/codigo/{codigo}` | Obtém por código |
+| GET | `/pagamentos/reserva/{reservaId}` | Pagamentos de uma reserva |
+| POST | `/pagamentos/gerar/{reservaId}` | Gera código (roles: CLIENTE, VENDEDOR, ADMIN) |
+| POST | `/pagamentos/pagar/{codigo}` | Confirma pagamento fictício |
+
 ### `/reserva-venda-veiculos`
 
 **Comandos do processo**
@@ -249,7 +340,7 @@ Base: `http://localhost:8083`
 | GET | `/marca-modelo-versao` | Agregado por marca+modelo+versão |
 | GET | `/marca-modelo-versao-qtde-estoque` | Quantidade disponível (`status = A`) por versão |
 
-## 8. Contratos (DTOs)
+## 9. Contratos (DTOs)
 
 ### `VeiculoDtoEntrada`
 
@@ -277,7 +368,7 @@ Validações: `corId`/`versaoId` obrigatórios; `chassi` entre 10 e 17; `valor` 
   "email": "maria@exemplo.com"
 }
 ```
-Validações: `nome` obrigatório (2–70); demais campos com limites de tamanho; `cep` com 8 posições. *(atenção: o campo do celular chama-se `celula` no DTO — ver §12)*.
+Validações: `nome` obrigatório (2–70); CPF validado por dígitos verificadores; demais campos com limites. O campo `celula` aceita alias JSON `"celular"`.
 
 ### `ReservaVendaVeiculoDtoEntrada`
 
@@ -286,7 +377,7 @@ Validações: `nome` obrigatório (2–70); demais campos com limites de tamanho
 ```
 Validações: `veiculoId` e `clienteId` obrigatórios; `valor` até 9 inteiros e 2 decimais.
 
-## 9. Tratamento de erros
+## 10. Tratamento de erros
 
 Centralizado em `GlobalExceptionHandler` (`@RestControllerAdvice`), que estende `ResponseEntityExceptionHandler`.
 
@@ -304,43 +395,89 @@ Centralizado em `GlobalExceptionHandler` (`@RestControllerAdvice`), que estende 
 | `MethodArgumentNotValidException` | (status do binding) | Erros de Bean Validation com lista de campos |
 | `RuntimeException` | 500 | Erro não tratado |
 
-Erros de validação retornam um `Problem` com a lista de campos e mensagens amigáveis (via `MessageSource`). Existe suporte a placeholder `{ordem}` para mensagens que dependem de posição.
+> O handler genérico que retornava `204` para qualquer `Exception` foi **removido**.
 
-## 10. Configuração
+## 11. Configuração
 
-`src/main/resources/application.yml` (valores atuais):
+`src/main/resources/application.yml` — principais propriedades:
 
-| Propriedade | Valor |
+| Propriedade | Valor / padrão |
 |---|---|
 | `server.port` | `8083` |
-| `spring.datasource.url` | `jdbc:postgresql://localhost:5433/veiculos` |
-| `spring.datasource.username/password` | `postgres` / `postgres` |
+| `spring.datasource.*` | `${DB_URL}`, `${DB_USERNAME}`, `${DB_PASSWORD}` |
 | `spring.jpa.hibernate.ddl-auto` | `update` |
-| `spring.jpa.show-sql` | `true` |
-| `spring.servlet.multipart.max-file-size` | `10MB` |
-| logging | `org.hibernate.SQL: DEBUG`, `binder: TRACE` |
+| `spring.jpa.show-sql` | `false` (LGPD) |
+| `app.jwt.secret` | `${JWT_SECRET}` (≥32 chars) |
+| `app.jwt.expiracao-min` | `120` |
+| `app.reserva.minutos-expiracao` | `30` |
+| `app.reserva.intervalo-verificacao-ms` | `60000` |
+| `app.aws.enabled` | `false` (local); `true` no Docker Compose |
+| `app.aws.sqs.enabled` | Habilita fila de eventos SAGA |
+| `management.endpoints.web.exposure.include` | `health,info` |
 
-> Em produção: definir `ddl-auto: validate` (com migrações via Flyway/Liquibase), desligar `show-sql` e mover credenciais para variáveis de ambiente/secret manager.
+Perfis adicionais:
+- **`docker`** — `application-docker.yml` (PostgreSQL + LocalStack)
+- **`test`** — `application-test.yml` (H2, segurança aberta)
 
-## 11. Segurança
+## 12. Segurança
 
-- Dependência `spring-boot-starter-security` presente.
-- `SecurityConfiguration` habilita `@EnableWebSecurity`, `@EnableMethodSecurity(securedEnabled=true, jsr250Enabled=true)` e `@EnableJpaAuditing`.
-- **Estado atual:** `SecurityFilterChain` com `csrf disabled` e `anyRequest().permitAll()` — **a API está aberta**. Há um bean comentado que restringia rotas.
+**Implementado:**
 
-Recomendações detalhadas no [relatório de segurança da FASE 5](FASE5-Entregaveis.md#2-relatório-de-segurança-de-dados): autenticação JWT/Cognito, RBAC por método (`@PreAuthorize`), criptografia/mascaramento de dados sensíveis e segregação de rede.
+- JWT HMAC via Spring Security OAuth2 Resource Server (`TokenService`, `NimbusJwtEncoder/Decoder`).
+- `POST /auth/login` emite token com claim `roles`.
+- `SecurityFilterChain` stateless; rotas públicas: `/auth/**`, `/actuator/health|info`, Swagger, `GET /veiculos/a-venda`.
+- Demais rotas exigem `Authorization: Bearer <token>`.
+- `@PreAuthorize` nos controllers (ex.: pagamentos, confirmação de venda).
+- Papéis: `ADMIN`, `VENDEDOR`, `OPERADOR`, `CLIENTE` (seed em dev via `UsuarioSeeder`).
+- LGPD: CPF único/validado, mascaramento em `ClienteDtoSaida`, logs SQL em WARN.
 
-## 12. Análise técnica e pontos de atenção
+**Pendente (melhoria futura):**
 
-Pontos observados na análise do código (não bloqueantes, mas recomendados):
+- Vínculo `Usuario` ↔ `Cliente` para que `CLIENTE` acesse apenas suas reservas.
+- Cognito/WAF/KMS em produção (ver [`FASE5-Entregaveis.md`](FASE5-Entregaveis.md)).
 
-1. **API aberta:** `anyRequest().permitAll()` expõe todos os endpoints, inclusive dados pessoais de clientes. Prioridade alta.
-2. **Chave de unicidade do cliente:** `Cliente.nome` é `unique`, mas o identificador natural deveria ser o **CPF** (hoje `length = 15`, sem `unique` e sem validação de dígitos). Impede dois clientes homônimos.
-3. **Handler genérico de `Exception`:** retorna `@ResponseStatus(HttpStatus.NO_CONTENT)` (204) para qualquer `Exception`, o que pode mascarar erros como sucesso. Avaliar retornar 4xx/5xx.
-4. **Typos de nomenclatura:** pacote `dto.ReervaVendaVeiculo`, exceção `OperacaoNaoPemitidaExecption`, classe `GenerciController`, campo `celula` no DTO de cliente. Não afetam o funcionamento, mas prejudicam manutenção.
-5. **Consistência de ordenação:** alguns métodos combinam `findBy...OrderByValorAsc(...)` com `Sort.by("id")`; verificar qual ordenação prevalece.
-6. **Segredos em texto plano** no `application.yml`.
-7. **Sem código de pagamento / timeout de reserva:** o processo previsto no case (código de pagamento, expiração da reserva) ainda não está implementado — ver desenho SAGA na FASE 5.
-8. **Ausência de testes** automatizados e de documentação OpenAPI/Swagger.
+## 13. Nuvem e mensageria
 
-Melhorias sugeridas priorizadas: (1) segurança de acesso → (2) proteção de dados sensíveis → (3) código de pagamento + SAGA → (4) qualidade (nomes, testes, OpenAPI).
+Abordagem **AWS híbrida** — monólito Spring Boot com integração AWS SDK:
+
+| Componente | Local | Produção |
+|---|---|---|
+| API | Docker Compose | App Runner |
+| PostgreSQL | Container | RDS |
+| SQS | LocalStack | Amazon SQS |
+| Lambda | LocalStack | AWS Lambda |
+| Secrets | env vars / LocalStack | Secrets Manager |
+
+- `SqsEventPublisher` publica eventos da SAGA na fila `veiculos-eventos`.
+- `SqsEventConsumer` consome mensagens (poll configurável).
+- `NoOpSagaEventPublisher` quando SQS desabilitado.
+- Lambda `gerar-codigo-pagamento` (Node.js) consome a fila no LocalStack — evidência serverless.
+- Infra: `infra/localstack/init-aws.sh`, `infra/apprunner/DEPLOY.md`.
+
+## 14. Observabilidade
+
+| Recurso | Endpoint |
+|---|---|
+| Health | `GET /actuator/health` |
+| Info | `GET /actuator/info` |
+| Swagger UI | `/swagger-ui.html` |
+| OpenAPI | `/v3/api-docs` |
+
+`OpenApiConfiguration` configura esquema Bearer JWT no Swagger.
+
+## 15. Análise técnica e pontos de atenção
+
+Itens resolvidos na FASE 5:
+
+1. ~~API aberta~~ — JWT + RBAC implementados.
+2. ~~CPF sem validação/unicidade~~ — `CpfUtil` + constraint unique.
+3. ~~Handler genérico 204~~ — removido.
+4. ~~Sem código de pagamento / timeout~~ — `Pagamento`, scheduler, SAGA.
+5. ~~Sem testes / OpenAPI~~ — 8 testes + Swagger.
+
+Pontos ainda recomendados:
+
+1. **Typos de nomenclatura:** pacote `dto.ReervaVendaVeiculo`, `OperacaoNaoPemitidaExecption`, `GenerciController`, campo `celula`.
+2. **Vínculo usuário ↔ cliente** para isolamento de dados por titular.
+3. **Migrações Flyway/Liquibase** em produção (`ddl-auto: validate`).
+4. **Deploy App Runner** como evidência em nuvem real.

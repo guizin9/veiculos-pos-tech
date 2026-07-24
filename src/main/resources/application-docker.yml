@@ -1,0 +1,22 @@
+spring:
+  config:
+    activate:
+      on-profile: docker
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://postgres:5432/veiculos}
+
+app:
+  aws:
+    enabled: true
+    endpoint: ${AWS_ENDPOINT:http://localstack:4566}
+    region: ${AWS_REGION:us-east-1}
+    access-key: ${AWS_ACCESS_KEY_ID:test}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:test}
+    sqs:
+      enabled: true
+      queue-name: veiculos-eventos
+      poll-interval-ms: 5000
+    secrets-manager:
+      # LocalStack cria o segredo veiculos/app no init; em produção habilitar na AWS real
+      enabled: false
+      secret-name: veiculos/app

@@ -41,3 +41,32 @@ app:
     minutos-expiracao: ${RESERVA_MINUTOS_EXPIRACAO:30}
     # Intervalo (ms) da verificação automática de expiração
     intervalo-verificacao-ms: ${RESERVA_INTERVALO_VERIFICACAO_MS:60000}
+  aws:
+    enabled: ${AWS_ENABLED:false}
+    endpoint: ${AWS_ENDPOINT:}
+    region: ${AWS_REGION:us-east-1}
+    access-key: ${AWS_ACCESS_KEY_ID:}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:}
+    sqs:
+      enabled: ${AWS_SQS_ENABLED:false}
+      queue-name: ${AWS_SQS_QUEUE_NAME:veiculos-eventos}
+      queue-url: ${AWS_SQS_QUEUE_URL:}
+      poll-interval-ms: ${AWS_SQS_POLL_INTERVAL_MS:5000}
+    secrets-manager:
+      enabled: ${AWS_SECRETS_ENABLED:false}
+      secret-name: ${AWS_SECRET_NAME:veiculos/app}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+
+info:
+  app:
+    name: Veículos API
+    description: API de revenda de veículos — FASE 5
+    version: 0.0.1-SNAPSHOT
