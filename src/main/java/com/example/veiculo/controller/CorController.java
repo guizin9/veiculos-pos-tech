@@ -10,6 +10,7 @@ import com.example.veiculo.service.CorService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
@@ -42,6 +43,7 @@ public class CorController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> incluir(@RequestBody @Valid CorDtoEntrada corDtoEntrada) {
         var tbEntrada = CorDtoEntrada.ConverteDto(corDtoEntrada, null);
         corDadosValidator.validaDados(new Cor(), tbEntrada, Libs.TpOpe.INCLUSAO);
@@ -50,6 +52,7 @@ public class CorController {
     }
 
     @PutMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> alterar(@PathVariable Long id, @RequestBody @Valid CorDtoEntrada corDtoEntrada) {
         return corService.obterCorPorId(id, true)
                 .map(tbInterna -> {
@@ -61,6 +64,7 @@ public class CorController {
     }
 
     @DeleteMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> excluir(@PathVariable Long id) {
         corDadosValidator.validaId(id, Libs.TpOpe.EXCLUSAO);
         if (!corService.excluir(id)) return ResponseEntity.notFound().build();

@@ -12,6 +12,7 @@ import com.example.veiculo.service.VeiculoService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
@@ -54,6 +55,7 @@ public class VeiculoController {
     }
 
     @PostMapping()
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> incluir(@RequestBody @Valid VeiculoDtoEntrada veiculoDtoEntrada) {
         var tbEntrada = VeiculoDtoEntrada.ConverteDto(veiculoDtoEntrada, null);
         veiculoDadosValidator.validaDados(new Veiculo(), tbEntrada, Libs.TpOpe.INCLUSAO);
@@ -62,6 +64,7 @@ public class VeiculoController {
     }
 
     @PutMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> alterar(@PathVariable Long id, @RequestBody @Valid VeiculoDtoEntrada veiculoDtoEntrada) {
         return veiculoService.obterVeiculoPorId(id, true)
                 .map(tbInterna -> {
@@ -73,6 +76,7 @@ public class VeiculoController {
     }
 
     @DeleteMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> excluir(@PathVariable Long id) {
         veiculoDadosValidator.validaId(id, Libs.TpOpe.EXCLUSAO);
         if (!veiculoService.excluir(id)) return ResponseEntity.notFound().build();

@@ -4,6 +4,7 @@ import com.example.veiculo.dto.Pagamento.PagamentoDtoSaida;
 import com.example.veiculo.service.PagamentoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -45,12 +46,14 @@ public class PagamentoController {
     }
 
     @PostMapping("gerar/{reservaId}")
+    @PreAuthorize("hasAnyRole('CLIENTE','VENDEDOR','ADMIN')")
     public ResponseEntity<PagamentoDtoSaida> gerar(@PathVariable Long reservaId) {
         var pagamento = pagamentoService.gerarParaReservaId(reservaId);
         return ResponseEntity.ok(PagamentoDtoSaida.ConverteDto(pagamento));
     }
 
     @PostMapping("pagar/{codigo}")
+    @PreAuthorize("hasAnyRole('CLIENTE','VENDEDOR','ADMIN')")
     public ResponseEntity<PagamentoDtoSaida> pagar(@PathVariable String codigo) {
         var pagamento = pagamentoService.confirmarPagamento(codigo);
         return ResponseEntity.ok(PagamentoDtoSaida.ConverteDto(pagamento));

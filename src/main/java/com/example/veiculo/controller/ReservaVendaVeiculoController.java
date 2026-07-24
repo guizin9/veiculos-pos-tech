@@ -10,6 +10,7 @@ import com.example.veiculo.service.ReservaVendaVeiculoService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
@@ -134,6 +135,7 @@ public class ReservaVendaVeiculoController {
     }
 
     @PostMapping()
+    @PreAuthorize("hasAnyRole('CLIENTE','VENDEDOR','ADMIN')")
     public ResponseEntity<Object> incluirReserva(@RequestBody @Valid ReservaVendaVeiculoDtoEntrada veiculoDtoEntrada) {
         var tbEntrada = ReservaVendaVeiculoDtoEntrada.ConverteDto(veiculoDtoEntrada, null);
         reservaVendaVeiculoDadosValidator.validaDados(new ReservaVendaVeiculo(), tbEntrada, Libs.TpOpe.INCLUSAO);
@@ -142,6 +144,7 @@ public class ReservaVendaVeiculoController {
     }
 
     @PutMapping("{id}")
+    @PreAuthorize("hasAnyRole('VENDEDOR','ADMIN')")
     public ResponseEntity<Object> alterarReserva(@PathVariable Long id, @RequestBody @Valid ReservaVendaVeiculoDtoEntrada reservaVendaVeiculoDtoEntrada) {
         return reservaVendaVeiculoService.obterReservaVendaVeiculoPorId(id, true)
                 .map(tbInterna -> {
@@ -153,6 +156,7 @@ public class ReservaVendaVeiculoController {
     }
 
     @DeleteMapping("confirma-venda/{id}")
+    @PreAuthorize("hasAnyRole('VENDEDOR','OPERADOR','ADMIN')")
     public ResponseEntity<Object> confirmaVenda(@PathVariable Long id) {
         return reservaVendaVeiculoService.obterReservaVendaVeiculoPorId(id, true)
                 .map(tbInterna -> {
@@ -162,6 +166,7 @@ public class ReservaVendaVeiculoController {
     }
 
     @DeleteMapping("retira-veiculo/{id}")
+    @PreAuthorize("hasAnyRole('VENDEDOR','OPERADOR','ADMIN')")
     public ResponseEntity<Object> retirarVeiculo(@PathVariable Long id) {
         return reservaVendaVeiculoService.obterReservaVendaVeiculoPorId(id, true)
                 .map(tbInterna -> {
@@ -170,6 +175,7 @@ public class ReservaVendaVeiculoController {
                 }).orElseGet(() -> ResponseEntity.notFound().build());
     }
     @DeleteMapping("{id}")
+    @PreAuthorize("hasAnyRole('CLIENTE','VENDEDOR','ADMIN')")
     public ResponseEntity<Object> cancela(@PathVariable Long id) {
         return reservaVendaVeiculoService.obterReservaVendaVeiculoPorId(id, true)
                 .map(tbInterna -> {

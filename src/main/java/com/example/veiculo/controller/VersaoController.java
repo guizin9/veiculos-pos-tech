@@ -10,6 +10,7 @@ import com.example.veiculo.service.VersaoService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
@@ -42,6 +43,7 @@ public class VersaoController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> incluir(@RequestBody @Valid VersaoDtoEntrada versaoDtoEntrada) {
         var tbEntrada = VersaoDtoEntrada.ConverteDto(versaoDtoEntrada, null);
         versaoDadosValidator.validaDados(new Versao(), tbEntrada, Libs.TpOpe.INCLUSAO);
@@ -50,6 +52,7 @@ public class VersaoController {
     }
 
     @PutMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> alterar(@PathVariable Long id, @RequestBody @Valid VersaoDtoEntrada versaoDtoEntrada) {
         return versaoService.obterVersaoPorId(id, true)
                 .map(tbInterna -> {
@@ -61,6 +64,7 @@ public class VersaoController {
     }
 
     @DeleteMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> excluir(@PathVariable Long id) {
         versaoDadosValidator.validaId(id, Libs.TpOpe.EXCLUSAO);
         if (!versaoService.excluir(id)) return ResponseEntity.notFound().build();

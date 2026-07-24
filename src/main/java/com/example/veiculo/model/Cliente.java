@@ -19,8 +19,11 @@ public class Cliente {
     @Column(name = "nome", length = 70, unique = true, nullable = false)
     private String nome;
 
-    @Column(name = "cpf", length = 15)
+    @Column(name = "cpf", length = 15, unique = true)
     private String cpf;
+
+    @Column(name = "ativo", nullable = false)
+    private boolean ativo = true;
 
     @Column(name = "logradouro", length = 50)
     private String logradouro;
