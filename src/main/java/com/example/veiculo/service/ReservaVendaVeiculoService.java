@@ -26,6 +26,8 @@ public class ReservaVendaVeiculoService {
     private final ReservaVendaVeiculoRepository reservaVendaVeiculoRepository;
     private final ReservaVendaVeiculoNegocioValidator veiculoNegocioValidator;
     private final VeiculoRepository veiculoRepository;
+    private final PagamentoService pagamentoService;
+    private final DocumentacaoRetiradaService documentacaoRetiradaService;
 
     public Optional<ReservaVendaVeiculo> obterReservaVendaVeiculoPorId(Long id) { return obterReservaVendaVeiculoPorId(id, false); }
     public Optional<ReservaVendaVeiculo> obterReservaVendaVeiculoPorId(Long id, boolean validaID) {
@@ -98,7 +100,9 @@ public class ReservaVendaVeiculoService {
         tbEntrada.setDtReserva(tbEntrada.getDtOpera());
         var veiculo = veiculoRepository.findById(tbEntrada.getVeiculo().getId());
         veiculo.get().reservaVeiculo();
-        return reservaVendaVeiculoRepository.save(tbEntrada);
+        var reservaSalva = reservaVendaVeiculoRepository.save(tbEntrada);
+        pagamentoService.gerarParaReserva(reservaSalva);
+        return reservaSalva;
     }
 
     @Transactional
@@ -125,9 +129,10 @@ public class ReservaVendaVeiculoService {
     public boolean retiraVeiculo(ReservaVendaVeiculo reservaVendaVeiculo) {
         veiculoNegocioValidator.validarNegocioRetiraVeiculo(reservaVendaVeiculo);
         var dtOpera = OffsetDateTime.now();
-        reservaVendaVeiculo.setDtReserva(dtOpera);
+        reservaVendaVeiculo.setDtRetirada(dtOpera);
         reservaVendaVeiculo.setDtOpera(dtOpera);
-        reservaVendaVeiculo.retiradaVeiculo();;
+        reservaVendaVeiculo.retiradaVeiculo();
+        documentacaoRetiradaService.emitir(reservaVendaVeiculo);
         return true;
     }
 
@@ -140,6 +145,7 @@ public class ReservaVendaVeiculoService {
         reservaVendaVeiculo.cancelaVeiculo();
         reservaVendaVeiculo.getVeiculo().setDtOpera(dtOpera);
         reservaVendaVeiculo.getVeiculo().ativaVeiculo();
+        pagamentoService.cancelarPorReserva(reservaVendaVeiculo.getId());
         return true;
     }
 

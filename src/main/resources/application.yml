@@ -28,3 +28,11 @@ logging:
   level:
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
+
+# Configurações de negócio da compra (Processo/SAGA)
+app:
+  reserva:
+    # Tempo (em minutos) até a reserva/pagamento expirar
+    minutos-expiracao: ${RESERVA_MINUTOS_EXPIRACAO:30}
+    # Intervalo (ms) da verificação automática de expiração
+    intervalo-verificacao-ms: ${RESERVA_INTERVALO_VERIFICACAO_MS:60000}
