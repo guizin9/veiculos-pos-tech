@@ -1,6 +1,7 @@
 package com.example.veiculo.messaging;
 
 import com.example.veiculo.geral.config.AwsProperties;
+import com.example.veiculo.geral.logging.SagaLoggingContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -64,8 +65,16 @@ public class SqsEventConsumer {
     }
 
     private void processar(SagaEvent evento) {
-        // Processamento leve: auditoria/observabilidade. A lógica principal permanece no monólito.
-        log.info("Evento SAGA consumido: tipo={} reservaId={} veiculoId={}",
+        if (evento.metadata() != null) {
+            String correlationId = evento.metadata().get("correlationId");
+            if (correlationId != null) {
+                SagaLoggingContext.bindCorrelationId(correlationId);
+            }
+        }
+        if (evento.reservaId() != null) {
+            SagaLoggingContext.bindReserva(evento.reservaId());
+        }
+        log.info("Evento SAGA consumido tipo={} reservaId={} veiculoId={}",
                 evento.tipo(), evento.reservaId(), evento.veiculoId());
     }
 }

@@ -14,8 +14,9 @@ import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 @Component
 @ConditionalOnProperty(name = "app.aws.sqs.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.gcp.pubsub.enabled", havingValue = "false", matchIfMissing = true)
 @RequiredArgsConstructor
-public class SqsEventPublisher {
+public class SqsEventPublisher implements MessagePublisher {
 
     private static final Logger log = LoggerFactory.getLogger(SqsEventPublisher.class);
 
@@ -38,6 +39,7 @@ public class SqsEventPublisher {
         log.info("Fila SQS resolvida: {}", queueUrl);
     }
 
+    @Override
     public void publicar(SagaEvent evento) {
         try {
             String body = objectMapper.writeValueAsString(evento);
@@ -45,7 +47,6 @@ public class SqsEventPublisher {
                     .queueUrl(queueUrl)
                     .messageBody(body)
                     .build());
-            log.debug("Evento SAGA publicado: tipo={} reservaId={}", evento.tipo(), evento.reservaId());
         } catch (Exception e) {
             // Falha na fila não deve quebrar a transação principal (consistência eventual)
             log.warn("Falha ao publicar evento SAGA (tipo={}): {}", evento.tipo(), e.getMessage());

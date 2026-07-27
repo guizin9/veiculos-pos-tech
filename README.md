@@ -212,24 +212,40 @@ docker logs veiculos-localstack 2>&1 | findstr gerar-codigo
 
 | Provedor | Mais fácil? | Mais barato? | Atende FASE 5? |
 |---|---|---|---|
-| **AWS (App Runner + LocalStack)** | **Sim** | **Sim (~US$ 6–16/mês)** | **Sim (completo)** |
-| Google Cloud Run | Sim | Sim (escala a zero) | Parcial (sem SQS/Lambda nativos) |
+| **AWS (Beanstalk + LocalStack)** | **Sim** | **Sim (~US$ 8–15/mês)** | **Sim (completo)** |
+| **Google Cloud (Cloud Run + Pub/Sub)** | **Sim** | **Sim (~US$ 8–18/mês, escala a zero)** | **Sim (completo)** |
 | Azure Container Apps | Médio | Sim | Parcial (adaptar mensageria) |
 | AWS ECS Fargate | Não | Médio | Sim (mais complexo) |
 
-**Escolha adotada:** **AWS híbrida** — LocalStack local (grátis) + deploy mínimo real no **App Runner** (mais simples e barato que ECS Fargate).
+**Escolhas de deploy:**
+- **AWS** — LocalStack local (grátis) + **Elastic Beanstalk** em produção
+- **GCP** — Docker Compose local + **Cloud Run** em produção (trilha implementada)
 
 ## Arquitetura implementada vs produção
 
+### AWS
+
 | Componente | Local (Docker Compose) | Produção (AWS) |
 |---|---|---|
-| API monólito | Container `app` | **App Runner** |
+| API monólito | Container `app` | **Elastic Beanstalk** (EC2 + ECR) |
 | PostgreSQL | Container `postgres` | **RDS** (free tier) |
 | SQS | **LocalStack** | **Amazon SQS** |
 | Lambda | **LocalStack** | **AWS Lambda** |
 | Secrets | **LocalStack** / env vars | **Secrets Manager** |
 | Logs | LocalStack / stdout | **CloudWatch** |
-| IAM | LocalStack | **IAM role** App Runner |
+| IAM | LocalStack | **IAM instance profile** Beanstalk |
+
+### GCP
+
+| Componente | Local (Docker Compose) | Produção (GCP) |
+|---|---|---|
+| API monólito | Container `app` | **Cloud Run** |
+| PostgreSQL | Container `postgres` | **Cloud SQL** |
+| Mensageria | **LocalStack SQS** | **Pub/Sub** |
+| Serverless | **LocalStack Lambda** | **Cloud Function Gen2** |
+| Secrets | env vars | **Secret Manager** |
+| Logs | stdout | **Cloud Logging** (JSON) |
+| Imagens | `docker build` local | **Artifact Registry** |
 
 A aplicação **permanece um único Spring Boot** — publica/consome SQS internamente; não virou microserviço.
 
@@ -245,11 +261,32 @@ Copie [`.env.example`](.env.example) para `.env`. Principais:
 | `AWS_ENDPOINT` | `http://localstack:4566` (local) ou vazio (AWS real) |
 | `AWS_SQS_ENABLED` | Habilita fila de eventos SAGA |
 
-## Deploy AWS (App Runner)
+## Deploy AWS (Elastic Beanstalk)
 
-Guia passo a passo: [`infra/apprunner/DEPLOY.md`](infra/apprunner/DEPLOY.md)
+> App Runner não aceita mais novos clientes (abr/2026). Guia atual:
 
-Policy IAM mínima: [`infra/iam/policy-minima-apprunner.json`](infra/iam/policy-minima-apprunner.json)
+- [`infra/elasticbeanstalk/DEPLOY.md`](infra/elasticbeanstalk/DEPLOY.md)
+- Imagem ECR: `637423599009.dkr.ecr.us-east-1.amazonaws.com/veiculos-pos-tech:latest`
+- Policy IAM EC2: [`infra/iam/policy-minima-beanstalk-ec2.json`](infra/iam/policy-minima-beanstalk-ec2.json)
+
+## Deploy GCP (Cloud Run)
+
+**Produção (veiculos-pos-tech):** https://veiculos-api-184616306282.us-central1.run.app
+
+Guia completo: [`infra/gcp/DEPLOY.md`](infra/gcp/DEPLOY.md)
+
+Scripts PowerShell (`infra/gcp/`):
+
+| Script | Função |
+|--------|--------|
+| `setup-apis.ps1` | Habilita APIs GCP |
+| `setup-artifact-registry.ps1` | Cria repositório Docker |
+| `build-and-push.ps1` | Build + push da imagem |
+| `setup-pubsub.ps1` | Tópico + IAM publisher |
+| `deploy-function.ps1` | Cloud Function Gen2 |
+| `deploy-cloud-run.ps1` | Deploy da API |
+
+Documentação complementar: [`SECRETS.md`](infra/gcp/SECRETS.md) · [`FUNCTIONS.md`](infra/gcp/FUNCTIONS.md) · [`LOGGING.md`](infra/gcp/LOGGING.md)
 
 ## Endpoints principais
 
@@ -418,7 +455,8 @@ src/main/java/com/example/veiculo/
 infra/
 ├── localstack/init-aws.sh           # SQS, Lambda, Secrets (local)
 ├── lambda/gerar-codigo-pagamento/   # função serverless de exemplo
-└── apprunner/DEPLOY.md              # guia deploy AWS
+├── elasticbeanstalk/DEPLOY.md       # guia deploy atual (Beanstalk)
+└── apprunner/DEPLOY.md              # legado (App Runner descontinuado)
 docs/
 ├── FASE5-Entregaveis.md
 └── DOCUMENTACAO.md
@@ -432,6 +470,6 @@ docs/
 - [x] SAGA orquestrador interno + eventos SQS
 - [x] Actuator + OpenAPI/Swagger
 - [x] Testes automatizados do fluxo de compra (8 testes)
-- [ ] Deploy real App Runner (evidência — seguir [`infra/apprunner/DEPLOY.md`](infra/apprunner/DEPLOY.md))
+- [ ] Deploy real Elastic Beanstalk (evidência — seguir `infra/elasticbeanstalk/DEPLOY.md`)
 - [ ] Vínculo usuário autenticado ↔ cliente (CLIENTE opera só suas reservas)
 - [ ] PDF final exportado a partir de `docs/FASE5-Entregaveis.md`

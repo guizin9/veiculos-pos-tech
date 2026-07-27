@@ -1,0 +1,50 @@
+spring:
+  config:
+    activate:
+      on-profile: gcp
+  datasource:
+    # Cloud Run + Cloud SQL: socket factory (anexe a instância no serviço Cloud Run).
+    # Override com DB_URL para testes locais via Cloud SQL Auth Proxy (localhost:5432).
+    url: ${DB_URL:jdbc:postgresql:///${GCP_CLOUDSQL_DATABASE:veiculos}?cloudSqlInstance=${GCP_CLOUDSQL_INSTANCE}&socketFactory=com.google.cloud.sql.postgres.SocketFactory&sslmode=disable}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+      connection-timeout: 30000
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+app:
+  gcp:
+    enabled: true
+    project-id: ${GCP_PROJECT_ID}
+    cloud-sql:
+      instance-connection-name: ${GCP_CLOUDSQL_INSTANCE}
+      database-name: ${GCP_CLOUDSQL_DATABASE:veiculos}
+    secret-manager:
+      enabled: ${GCP_SECRET_MANAGER_ENABLED:true}
+      db-password-secret: ${GCP_SECRET_DB_PASSWORD:veiculos-db-password}
+      jwt-secret: ${GCP_SECRET_JWT:veiculos-jwt-secret}
+    pubsub:
+      enabled: ${GCP_PUBSUB_ENABLED:true}
+      topic-id: ${GCP_PUBSUB_TOPIC:veiculos-eventos}
+  aws:
+    enabled: false
+    sqs:
+      enabled: false
+
+management:
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true

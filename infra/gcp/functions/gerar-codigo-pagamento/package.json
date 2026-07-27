@@ -1,0 +1,16 @@
+{
+  "name": "gerar-codigo-pagamento",
+  "version": "1.0.0",
+  "description": "Cloud Function — gera código de pagamento fictício para eventos RESERVA_CRIADA",
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "functions-framework --target=gerarCodigoPagamento --signature-type=cloudevent --port=8081",
+    "test:local": "functions-framework --target=gerarCodigoPagamento --signature-type=cloudevent --port=8081"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^3.4.0"
+  }
+}

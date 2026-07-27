@@ -25,6 +25,9 @@ app:
     enabled: false
     sqs:
       enabled: false
+  gcp:
+    secret-manager:
+      enabled: false
   reserva:
     minutos-expiracao: 30
     intervalo-verificacao-ms: 999999999

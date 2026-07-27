@@ -19,7 +19,8 @@ spring:
         format_sql: false
         use_sql_comments: false
 server:
-  port: ${SERVER_PORT:8083}
+  # Cloud Run injeta PORT; localmente use SERVER_PORT ou PORT
+  port: ${PORT:${SERVER_PORT:8083}}
   servlet:
     session:
      tracking-modes: cookie
@@ -55,6 +56,19 @@ app:
     secrets-manager:
       enabled: ${AWS_SECRETS_ENABLED:false}
       secret-name: ${AWS_SECRET_NAME:veiculos/app}
+  gcp:
+    enabled: ${GCP_ENABLED:false}
+    project-id: ${GCP_PROJECT_ID:}
+    cloud-sql:
+      instance-connection-name: ${GCP_CLOUDSQL_INSTANCE:}
+      database-name: ${GCP_CLOUDSQL_DATABASE:veiculos}
+    secret-manager:
+      enabled: ${GCP_SECRET_MANAGER_ENABLED:false}
+      db-password-secret: ${GCP_SECRET_DB_PASSWORD:}
+      jwt-secret: ${GCP_SECRET_JWT:}
+    pubsub:
+      enabled: ${GCP_PUBSUB_ENABLED:false}
+      topic-id: ${GCP_PUBSUB_TOPIC:veiculos-eventos}
 
 management:
   endpoints:

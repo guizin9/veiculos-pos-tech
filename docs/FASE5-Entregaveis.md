@@ -51,13 +51,61 @@ A partir desse ponto, a FASE 5 define **como esse sistema deve rodar em nuvem, c
 | LGPD (CPF, mascaramento, logs) | ✅ | `CpfUtil`, `ClienteDtoSaida`, SQL em WARN |
 | SAGA orquestrada | ✅ | `CompraSagaOrchestrator`, `SagaCompra`, compensações |
 | Pagamento antes da venda | ✅ | `validarPodeConfirmarVenda()` |
-| Mensageria SQS + Lambda | ✅ | `SqsEventPublisher`, LocalStack, Lambda Node.js |
+| Mensageria SQS + Lambda (local) | ✅ | `SqsEventPublisher`, LocalStack, Lambda Node.js |
+| Mensageria Pub/Sub + Cloud Function (GCP) | ✅ | `GooglePubSubPublisher`, tópico `veiculos-eventos`, `gerar-codigo-pagamento` |
 | Docker Compose | ✅ | `docker-compose.yml`, `Dockerfile` |
 | Actuator + Swagger | ✅ | `/actuator/health`, `/swagger-ui.html` |
 | Testes automatizados | ✅ | 8 testes (`CompraFluxoIntegrationTest`, SAGA unitário) |
-| Deploy App Runner (nuvem real) | 📋 Documentado | `infra/apprunner/DEPLOY.md` — execução manual |
+| Deploy GCP Cloud Run (nuvem real) | ✅ | `infra/gcp/DEPLOY.md` — **produção ativa** |
+| Deploy App Runner AWS (alternativa) | 📋 Documentado | `infra/apprunner/DEPLOY.md` |
 
-**Decisão arquitetural:** manter **um único monólito Spring Boot**. A SAGA é orquestrada internamente; SQS/Lambda servem como integração assíncrona e evidência serverless, sem dividir em microserviços.
+**Decisão arquitetural:** manter **um único monólito Spring Boot**. A SAGA é orquestrada internamente; SQS/Lambda (local) e Pub/Sub/Cloud Function (GCP) servem como integração assíncrona e evidência serverless, sem dividir em microserviços.
+
+### Deploy em produção (GCP — veiculos-pos-tech)
+
+| Recurso | Valor |
+|---------|-------|
+| **URL da API** | https://veiculos-api-184616306282.us-central1.run.app |
+| **Projeto GCP** | `veiculos-pos-tech` |
+| **Cloud Run** | `veiculos-api` (revisão ativa com profile `gcp`) |
+| **Cloud SQL** | PostgreSQL 16 — `veiculos-pos-tech:us-central1:veiculos-pos-tech-project` |
+| **Pub/Sub** | Tópico `veiculos-eventos` |
+| **Cloud Function** | `gerar-codigo-pagamento` (Gen2, trigger Pub/Sub) |
+| **Secret Manager** | `veiculos-db-password`, `veiculos-jwt-secret` |
+
+**Teste rápido (demo):**
+
+```bash
+# Login (campo de senha é "senha", não "password")
+curl -X POST https://veiculos-api-184616306282.us-central1.run.app/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","senha":"admin123"}'
+
+# Health
+curl https://veiculos-api-184616306282.us-central1.run.app/actuator/health
+
+# Após criar reserva autenticado — logs da Cloud Function
+gcloud functions logs read gerar-codigo-pagamento --gen2 --region=us-central1 --project=veiculos-pos-tech --limit=5
+```
+
+```mermaid
+flowchart TB
+    User["Cliente / Swagger UI"]
+    CR["Cloud Run — veiculos-api\nSpring Boot profile gcp"]
+    SQL["Cloud SQL PostgreSQL 16"]
+    SM["Secret Manager\nJWT + senha DB"]
+    PS["Pub/Sub veiculos-eventos"]
+    CF["Cloud Function\ngerar-codigo-pagamento"]
+    LOG["Cloud Logging JSON"]
+
+    User --> CR
+    CR --> SQL
+    CR --> SM
+    CR --> PS
+    PS --> CF
+    CR --> LOG
+    CF --> LOG
+```
 
 ---
 
@@ -69,12 +117,10 @@ A partir desse ponto, a FASE 5 define **como esse sistema deve rodar em nuvem, c
 - **Segurança por padrão (*security by design* e *defense in depth*):** criptografia em trânsito e em repouso, segregação de rede, gestão centralizada de segredos e de identidade.
 - **Observabilidade e auditoria** desde o início, exigência reforçada pelo tratamento de dados pessoais (LGPD).
 
-> A referência de provedor é a **AWS**, mas há equivalência direta em Azure e GCP (tabela na seção 1.5).
-
+> A referência de provedor em produção é a **GCP** (Cloud Run). Há equivalência direta com AWS e Azure (tabela na seção 1.5).
 ### 1.2. Diagrama da arquitetura (AWS — proposta de produção)
 
-> **Implementação adotada:** App Runner (em vez de ECS Fargate) + RDS + SQS + Lambda — mais simples e barato para demonstração acadêmica. Localmente: Docker Compose + LocalStack simula os mesmos serviços.
-
+> **Implementação adotada em produção:** **GCP Cloud Run** + Cloud SQL + Pub/Sub + Cloud Function (ver seção *Deploy em produção* acima). Localmente: Docker Compose + LocalStack simula SQS/Lambda. Alternativa AWS documentada em `infra/apprunner/DEPLOY.md`.
 ```mermaid
 flowchart TB
     User["Cliente / Frontend (SPA)"]

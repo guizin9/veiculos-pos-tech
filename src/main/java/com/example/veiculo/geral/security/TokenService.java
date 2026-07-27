@@ -1,28 +1,30 @@
 package com.example.veiculo.geral.security;
 
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.oauth2.jwt.JwtClaimsSet;
-import org.springframework.security.oauth2.jwt.JwtEncoder;
-import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.List;
 
 @Service
 public class TokenService {
 
-    private final JwtEncoder jwtEncoder;
+    @Value("${app.jwt.secret}")
+    private String jwtSecret;
 
     @Value("${app.jwt.expiracao-min:120}")
     private long expiracaoMinutos;
-
-    public TokenService(JwtEncoder jwtEncoder) {
-        this.jwtEncoder = jwtEncoder;
-    }
 
     public String gerarToken(Authentication authentication) {
         Instant agora = Instant.now();
@@ -32,15 +34,21 @@ public class TokenService {
                 .map(a -> a.replaceFirst("^ROLE_", ""))
                 .toList();
 
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .issuer("veiculos-api")
-                .issuedAt(agora)
-                .expiresAt(agora.plus(expiracaoMinutos, ChronoUnit.MINUTES))
+                .issueTime(Date.from(agora))
+                .expirationTime(Date.from(agora.plus(expiracaoMinutos, ChronoUnit.MINUTES)))
                 .subject(authentication.getName())
                 .claim("roles", roles)
                 .build();
 
-        return jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
+        SignedJWT signedJwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
+        try {
+            signedJwt.sign(new MACSigner(jwtSecret.getBytes(StandardCharsets.UTF_8)));
+        } catch (JOSEException e) {
+            throw new IllegalStateException("Falha ao assinar JWT", e);
+        }
+        return signedJwt.serialize();
     }
 
     public long getExpiracaoMinutos() {

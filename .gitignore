@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Node (Cloud Function GCP) ###
+node_modules/
+package-lock.json
