@@ -65,24 +65,28 @@ A partir desse ponto, a FASE 5 define **como esse sistema deve rodar em nuvem, c
 
 | Recurso | Valor |
 |---------|-------|
-| **URL da API** | https://veiculos-api-184616306282.us-central1.run.app |
+| **URL da API** | https://veiculos-api-k4f2n37iga-uc.a.run.app |
+| **URL alternativa** | https://veiculos-api-184616306282.us-central1.run.app |
 | **Projeto GCP** | `veiculos-pos-tech` |
-| **Cloud Run** | `veiculos-api` (revisão ativa com profile `gcp`) |
-| **Cloud SQL** | PostgreSQL 16 — `veiculos-pos-tech:us-central1:veiculos-pos-tech-project` |
+| **Cloud Run** | `veiculos-api` · revisão `veiculos-api-00013-9b7` · profile `gcp` · 512 MiB · 1 CPU |
+| **Cloud SQL** | PostgreSQL 16 — instância `veiculos-pos-tech-project` · DB `veiculos` · user `veiculos_user` |
+| **Connection Name** | `veiculos-pos-tech:us-central1:veiculos-pos-tech-project` |
 | **Pub/Sub** | Tópico `veiculos-eventos` |
-| **Cloud Function** | `gerar-codigo-pagamento` (Gen2, trigger Pub/Sub) |
-| **Secret Manager** | `veiculos-db-password`, `veiculos-jwt-secret` |
+| **Cloud Function** | `gerar-codigo-pagamento` (Gen2, Node 20, trigger Pub/Sub, ACTIVE) |
+| **Secret Manager** | `veiculos-db-password`, `veiculos-jwt-secret` (montados no Cloud Run) |
+| **Artifact Registry** | `us-central1-docker.pkg.dev/veiculos-pos-tech/veiculos/api:latest` |
+| **Service Account** | `184616306282-compute@developer.gserviceaccount.com` |
 
 **Teste rápido (demo):**
 
 ```bash
 # Login (campo de senha é "senha", não "password")
-curl -X POST https://veiculos-api-184616306282.us-central1.run.app/auth/login \
+curl -X POST https://veiculos-api-k4f2n37iga-uc.a.run.app/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","senha":"admin123"}'
 
 # Health
-curl https://veiculos-api-184616306282.us-central1.run.app/actuator/health
+curl https://veiculos-api-k4f2n37iga-uc.a.run.app/actuator/health
 
 # Após criar reserva autenticado — logs da Cloud Function
 gcloud functions logs read gerar-codigo-pagamento --gen2 --region=us-central1 --project=veiculos-pos-tech --limit=5
@@ -117,8 +121,22 @@ flowchart TB
 - **Segurança por padrão (*security by design* e *defense in depth*):** criptografia em trânsito e em repouso, segregação de rede, gestão centralizada de segredos e de identidade.
 - **Observabilidade e auditoria** desde o início, exigência reforçada pelo tratamento de dados pessoais (LGPD).
 
-> A referência de provedor em produção é a **GCP** (Cloud Run). Há equivalência direta com AWS e Azure (tabela na seção 1.5).
-### 1.2. Diagrama da arquitetura (AWS — proposta de produção)
+> A referência de provedor em produção é a **GCP** (Cloud Run). Há equivalência direta com AWS e Azure (tabela na seção 1.7).
+
+### 1.2. Serviços GCP em produção (implementado)
+
+| Camada | Serviço GCP | Justificativa |
+|---|---|---|
+| **API** | **Cloud Run** | Container gerenciado, HTTPS, escala a zero, ideal para monólito JVM |
+| **Banco** | **Cloud SQL** PostgreSQL 16 | Gerenciado, compatível com JPA existente |
+| **Mensageria** | **Pub/Sub** | Desacopla eventos SAGA; integração nativa com Cloud Functions |
+| **Serverless** | **Cloud Function Gen2** | Processa `RESERVA_CRIADA`; evidência event-driven |
+| **Segredos** | **Secret Manager** | JWT e senha DB fora do código |
+| **Registry** | **Artifact Registry** | Imagens Docker privadas |
+| **Logs** | **Cloud Logging** | JSON estruturado + auditoria operacional |
+| **IAM** | **Service Account + roles** | Least privilege (`pubsub.publisher`, `secretAccessor`, `cloudsql.client`) |
+
+### 1.3. Diagrama da arquitetura (AWS — referência / alternativa)
 
 > **Implementação adotada em produção:** **GCP Cloud Run** + Cloud SQL + Pub/Sub + Cloud Function (ver seção *Deploy em produção* acima). Localmente: Docker Compose + LocalStack simula SQS/Lambda. Alternativa AWS documentada em `infra/apprunner/DEPLOY.md`.
 ```mermaid
@@ -167,7 +185,7 @@ flowchart TB
     APIGW --> CT
 ```
 
-### 1.2.1. Diagrama local (Docker Compose + LocalStack)
+### 1.4. Diagrama local (Docker Compose + LocalStack)
 
 ```mermaid
 flowchart LR
@@ -178,7 +196,7 @@ flowchart LR
     SQS2 --> Lambda2["Lambda gerar-codigo-pagamento"]
 ```
 
-### 1.3. Serviços escolhidos e justificativas
+### 1.5. Serviços escolhidos e justificativas (AWS — referência)
 
 | Camada | Serviço (AWS) | Por que (justificativa) |
 |---|---|---|
@@ -186,14 +204,14 @@ flowchart LR
 | **Proteção de borda** | **AWS WAF + Shield** | Bloqueia OWASP Top 10 (SQLi, XSS), rate limiting e mitigação de DDoS antes de chegar à aplicação. Gerenciado, com regras atualizadas pela AWS. |
 | **API Gateway** | **Amazon API Gateway** | Ponto único de entrada, encerra TLS, aplica *throttling*, valida token JWT e integra nativamente com Cognito. Reduz superfície de exposição da aplicação. |
 | **Autenticação/Autorização** | **Amazon Cognito** | Gerência de identidade gerenciada (login, MFA, emissão de JWT/OAuth2). Essencial para a regra "venda somente para compradores cadastrados". Evita implementar e operar auth próprio. |
-| **Aplicação** | **AWS App Runner** *(implementado)* / ECS Fargate *(proposta alternativa)* | App Runner é o serviço mais simples para deploy de container Spring Boot: HTTPS gerenciado, auto scaling e custo baixo (~US$ 6–16/mês). Fargate oferece mais controle de rede/VPC para produção enterprise. |
+| **Aplicação** | **AWS App Runner** / ECS Fargate *(alternativa AWS documentada)* | App Runner simplifica deploy de container Spring Boot. **Produção adotada:** GCP Cloud Run (ver seção *Deploy em produção*). Fargate oferece mais controle de rede/VPC para produção enterprise. |
 | **Orquestração da compra** | **`CompraSagaOrchestrator` no monólito** + SQS | Orquestração interna garante consistência sem microserviços; SQS desacopla eventos assíncronos. Step Functions permanece como evolução para fluxos multi-serviço. |
 | **Funções pontuais** | **AWS Lambda** | Tarefas curtas e event‑driven: gerar código de pagamento e emitir documentação de retirada. Serverless, escala a zero, custo por execução. |
 | **Mensageria** | **Amazon SQS (+ DLQ)** | Desacopla passos assíncronos (ex.: confirmação de pagamento) e garante processamento *at‑least‑once*; a *Dead Letter Queue* isola mensagens com falha para reprocesso. |
 | **Banco de dados** | **Amazon Aurora PostgreSQL Serverless v2** | Compatível com o PostgreSQL já usado no projeto. Gerenciado (backup, patch, réplicas), escala automaticamente a capacidade e oferece criptografia em repouso via KMS. |
 | **Segredos** | **AWS Secrets Manager** | Armazena credenciais de banco e chaves de integração fora do código/`application.yml`, com rotação automática. |
 
-### 1.4. Serviços de segurança da nuvem (e justificativa do uso)
+### 1.6. Serviços de segurança da nuvem (e justificativa do uso)
 
 | Serviço | Uso na solução | Justificativa |
 |---|---|---|
@@ -206,7 +224,7 @@ flowchart LR
 | **Amazon GuardDuty** | Detecção contínua de ameaças. | Identifica acessos anômalos/credenciais comprometidas sem esforço operacional. |
 | **VPC + Security Groups + Subnets privadas** | Aurora e Fargate em subnets privadas; acesso ao banco só a partir da aplicação. | Isolamento de rede; o banco de dados nunca é exposto à internet. |
 
-### 1.5. Equivalência entre provedores
+### 1.7. Equivalência entre provedores
 
 | Função | AWS | Azure | GCP |
 |---|---|---|---|
@@ -246,7 +264,7 @@ Sob a ótica da **LGPD**, todos os campos da entidade `Cliente` são **dados pes
 - **Contatos (email, celular, fone)** — vetor de *phishing* e engenharia social.
 - **Código/dados de pagamento** — dado financeiro; exige proteção reforçada e menor tempo de retenção.
 
-> Observação sobre o modelo atual: a coluna `cpf` está com tamanho 15 e sem restrição de unicidade; o campo único hoje é `nome`. Recomenda‑se tornar o **CPF único e validado**, e **não** usar `nome` como chave única.
+> **Implementado:** CPF com constraint `unique`, validação via `CpfUtil` e mascaramento na saída. O campo `nome` também permanece único no modelo.
 
 ### 2.3. Políticas de acesso a dados implementadas / recomendadas
 
@@ -257,21 +275,22 @@ Sob a ótica da **LGPD**, todos os campos da entidade `Cliente` são **dados pes
 3. **Regra "venda só para cadastrado":** `ReservaVendaVeiculoNegocioValidator` exige cliente existente e **ativo**.
 4. **Mascaramento na saída:** `ClienteDtoSaida` mascara CPF (`***.***.***-XX`).
 5. **Logs sem PII:** `show-sql: false`, Hibernate SQL/binder em WARN.
-6. **Segredos externalizados:** `DB_*`, `JWT_SECRET`, `AWS_*` via variáveis de ambiente.
+6. **Segredos externalizados:** `DB_*`, `JWT_SECRET` via variáveis de ambiente; em produção GCP, **Secret Manager** montado no Cloud Run (`veiculos-db-password`, `veiculos-jwt-secret`).
+7. **IAM GCP (produção):** service account do Cloud Run com `pubsub.publisher`, `secretmanager.secretAccessor`, `cloudsql.client`.
 
-**Recomendado para produção (evolução):**
+**Recomendado para produção enterprise (evolução):**
 
-1. **Cognito** em vez de JWT próprio (MFA, gestão de usuários).
+1. **Identity Platform / Cognito** em vez de JWT próprio (MFA, gestão de usuários).
 2. **Vínculo `Usuario` ↔ `Cliente`** para que `CLIENTE` acesse apenas suas reservas.
-3. **IAM least privilege** por serviço (App Runner role, Lambda role).
-4. **Criptografia de campo** (KMS) para CPF e códigos de pagamento.
-5. **Segregação de rede:** RDS em subnet privada.
+3. **IAM least privilege** refinado (SA dedicada em vez da default compute).
+4. **Criptografia de campo** (Cloud KMS / AWS KMS) para CPF e códigos de pagamento.
+5. **Segregação de rede:** Cloud SQL / RDS em subnet privada, Cloud Armor / WAF na borda.
 
 ### 2.4. Políticas de segurança da operação (tratamento dos dados)
 
-- **Criptografia em trânsito:** TLS 1.2+ obrigatório (CloudFront → API Gateway → Fargate).
-- **Criptografia em repouso:** Aurora, S3, SQS e Secrets criptografados com **KMS**. Para CPF e código de pagamento, aplicar criptografia adicional em nível de campo (envelope encryption).
-- **Gestão de segredos:** credenciais fora do `application.yml`, em **Secrets Manager**, com rotação automática.
+- **Criptografia em trânsito:** TLS 1.2+ (HTTPS no Cloud Run / API Gateway).
+- **Criptografia em repouso:** Cloud SQL / Aurora / S3 criptografados pelo provedor; evolução: **Cloud KMS / AWS KMS** para campos sensíveis (CPF, código de pagamento).
+- **Gestão de segredos:** ✅ **Secret Manager** (GCP) em produção; credenciais fora do `application.yml`.
 - **Minimização e finalidade (LGPD):** coletar apenas o necessário para pagamento e documentação; definir base legal (execução de contrato).
 - **Retenção e descarte:** política de expurgo — código de pagamento expira; dados de clientes que desistiram/cancelaram são anonimizados após prazo legal.
 - **Auditoria/rastreabilidade:** `CloudTrail` + logs de aplicação registram *quem* acessou dado pessoal, *quando* e *por quê*. O campo `dtOpera` já existe nas entidades e ajuda na trilha.
@@ -285,7 +304,7 @@ Sob a ótica da **LGPD**, todos os campos da entidade `Cliente` são **dados pes
 | 1 | ~~**API aberta**~~ | ~~Alto~~ | ✅ JWT + RBAC implementados. Pendente: vínculo usuário↔cliente. |
 | 2 | Vazamento de **CPF/endereço** | Alto (LGPD, fraude) | ✅ Mascaramento na saída; evolução: criptografia KMS em repouso. |
 | 3 | **SQL Injection / XSS** | Alto | JPA parametrizado + Bean Validation; WAF na borda (produção). |
-| 4 | ~~**Credenciais no código/config**~~ | ~~Alto~~ | ✅ Variáveis de ambiente; evolução: Secrets Manager com rotação. |
+| 4 | ~~**Credenciais no código/config**~~ | ~~Alto~~ | ✅ Secret Manager (GCP) + env vars; evolução: rotação automática. |
 | 5 | **Reserva concorrente** | Médio | Checagem de status R/V + transação; evolução: lock otimista. |
 | 6 | ~~**Pagamento não efetuado / desistência**~~ | ~~Médio~~ | ✅ Scheduler de expiração + compensação SAGA. |
 | 7 | **Perda de dados** | Alto | Backups automatizados, multi‑AZ, testes de restauração. |
@@ -310,14 +329,14 @@ A proposta original usava AWS Step Functions como orquestrador externo. Para man
 - Entidade `SagaCompra` persistindo etapa e status.
 - Validações de transição e idempotência por ordinal de etapa.
 - Compensações em cancelamento (`CANCELADA`) e expiração (`EXPIRADA`).
-- Eventos publicados em **Amazon SQS** (LocalStack local) para desacoplamento e evidência de mensageria.
+- Eventos publicados em **Pub/Sub** (GCP produção) ou **Amazon SQS** (LocalStack local) para desacoplamento e evidência de mensageria.
 
 **Justificativa (mantida da proposta original):**
 
 1. Fluxo com estados bem definidos e sequenciais.
 2. Compensações explícitas e críticas.
 3. Timeouts e desistência via scheduler.
-4. Observabilidade via entidade `SagaCompra` + logs + eventos SQS.
+4. Observabilidade via entidade `SagaCompra` + logs + eventos Pub/Sub/SQS.
 5. Evolução futura para Step Functions sem reescrever a lógica de negócio.
 
 ### 3.3. Fluxo da SAGA (com compensações)
@@ -378,4 +397,5 @@ Esse mapeamento corresponde aos métodos em `ReservaVendaVeiculoService` e `Paga
 - [x] Relatório de segurança de dados.
 - [x] Relatório de orquestração SAGA.
 - [x] Implementação funcional (pagamento, SAGA, JWT, Docker, testes).
-- [ ] Deploy App Runner com URL pública (evidência em nuvem — ver `infra/apprunner/DEPLOY.md`).
+- [x] Deploy GCP Cloud Run com URL pública — https://veiculos-api-k4f2n37iga-uc.a.run.app
+- [x] Pub/Sub + Cloud Function Gen2 (evidência serverless E2E validada).

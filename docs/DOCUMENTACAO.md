@@ -45,10 +45,11 @@ Pacote raiz: `com.example.veiculo`
 | `repository` | Interfaces Spring Data JPA; *native queries* para relatórios agregados. |
 | `model` | Entidades JPA. |
 | `dto.<Agregado>` | `...DtoEntrada` (records com Bean Validation) e `...DtoSaida`. |
-| `geral.config` | `SecurityConfiguration`, `AwsProperties`, `OpenApiConfiguration`, `CpfUtil`, exceções. |
+| `geral.config` | `SecurityConfiguration`, `AwsProperties`, `GcpProperties`, `OpenApiConfiguration`, `CpfUtil`, exceções. |
 | `geral.security` | `TokenService`, `UsuarioDetailsService`, `UsuarioSeeder`. |
+| `geral.logging` | `CorrelationIdFilter`, `SagaLoggingContext`. |
 | `saga` | `CompraSagaOrchestrator`, `SagaEtapa`, `SagaStatus`. |
-| `messaging` | `SagaEventBus`, `SqsEventPublisher`, `SqsEventConsumer`. |
+| `messaging` | `MessagePublisher`, `SagaEventBus`, `SqsEventPublisher`, `GooglePubSubPublisher`, `NoOpMessagePublisher`. |
 | `scheduler` | `ReservaExpiracaoScheduler` (expiração automática). |
 | `geral.config.exception` | `GlobalExceptionHandler`, `Problem`, `ProblemType`, exceções personalizadas. |
 | `geral.generic` | `GenerciController` (geração de header `Location`). |
@@ -412,58 +413,87 @@ Centralizado em `GlobalExceptionHandler` (`@RestControllerAdvice`), que estende 
 | `app.reserva.minutos-expiracao` | `30` |
 | `app.reserva.intervalo-verificacao-ms` | `60000` |
 | `app.aws.enabled` | `false` (local); `true` no Docker Compose |
-| `app.aws.sqs.enabled` | Habilita fila de eventos SAGA |
+| `app.aws.sqs.enabled` | Habilita fila SQS (LocalStack / AWS) |
+| `app.gcp.pubsub.enabled` | Habilita Pub/Sub (profile `gcp`) |
 | `management.endpoints.web.exposure.include` | `health,info` |
 
 Perfis adicionais:
 - **`docker`** — `application-docker.yml` (PostgreSQL + LocalStack)
+- **`gcp`** — `application-gcp.yml` (Cloud SQL, Pub/Sub, Secret Manager)
 - **`test`** — `application-test.yml` (H2, segurança aberta)
 
 ## 12. Segurança
 
 **Implementado:**
 
-- JWT HMAC via Spring Security OAuth2 Resource Server (`TokenService`, `NimbusJwtEncoder/Decoder`).
-- `POST /auth/login` emite token com claim `roles`.
+- JWT HMAC HS256: `TokenService` assina com Nimbus `MACSigner`; validação via Spring Security OAuth2 Resource Server.
+- `POST /auth/login` emite token com claim `roles` (campo de senha: **`senha`**).
 - `SecurityFilterChain` stateless; rotas públicas: `/auth/**`, `/actuator/health|info`, Swagger, `GET /veiculos/a-venda`.
 - Demais rotas exigem `Authorization: Bearer <token>`.
 - `@PreAuthorize` nos controllers (ex.: pagamentos, confirmação de venda).
-- Papéis: `ADMIN`, `VENDEDOR`, `OPERADOR`, `CLIENTE` (seed em dev via `UsuarioSeeder`).
-- LGPD: CPF único/validado, mascaramento em `ClienteDtoSaida`, logs SQL em WARN.
+- Papéis: `ADMIN`, `VENDEDOR`, `OPERADOR`, `CLIENTE` (seed via `UsuarioSeeder`).
+- LGPD: CPF único/validado (`CpfUtil`), mascaramento em `ClienteDtoSaida`, logs SQL desligados.
+- **Produção GCP:** segredos JWT e senha DB no **Secret Manager**, montados no Cloud Run.
 
 **Pendente (melhoria futura):**
 
 - Vínculo `Usuario` ↔ `Cliente` para que `CLIENTE` acesse apenas suas reservas.
-- Cognito/WAF/KMS em produção (ver [`FASE5-Entregaveis.md`](FASE5-Entregaveis.md)).
+- Identity Platform / Cloud Armor / Cloud KMS (ver [`FASE5-Entregaveis.md`](FASE5-Entregaveis.md)).
 
 ## 13. Nuvem e mensageria
 
-Abordagem **AWS híbrida** — monólito Spring Boot com integração AWS SDK:
+Monólito Spring Boot com abstração `MessagePublisher` — perfil ativo define o backend de mensageria.
 
-| Componente | Local | Produção |
-|---|---|---|
-| API | Docker Compose | App Runner |
-| PostgreSQL | Container | RDS |
-| SQS | LocalStack | Amazon SQS |
-| Lambda | LocalStack | AWS Lambda |
-| Secrets | env vars / LocalStack | Secrets Manager |
+### Produção (GCP — `veiculos-pos-tech`)
 
-- `SqsEventPublisher` publica eventos da SAGA na fila `veiculos-eventos`.
-- `SqsEventConsumer` consome mensagens (poll configurável).
-- `NoOpSagaEventPublisher` quando SQS desabilitado.
-- Lambda `gerar-codigo-pagamento` (Node.js) consome a fila no LocalStack — evidência serverless.
-- Infra: `infra/localstack/init-aws.sh`, `infra/apprunner/DEPLOY.md`.
+| Componente | Serviço GCP |
+|---|---|
+| API | **Cloud Run** (`veiculos-api`, profile `gcp`) |
+| PostgreSQL | **Cloud SQL** (`veiculos-pos-tech-project`, DB `veiculos`, user `veiculos_user`) |
+| Mensageria | **Pub/Sub** (tópico `veiculos-eventos`) |
+| Serverless | **Cloud Function Gen2** (`gerar-codigo-pagamento`, Node 20) |
+| Segredos | **Secret Manager** (`veiculos-db-password`, `veiculos-jwt-secret`) |
+| Logs | **Cloud Logging** (JSON + `correlationId`) |
+| Imagens | **Artifact Registry** |
+
+**URL produção:** https://veiculos-api-k4f2n37iga-uc.a.run.app
+
+- `GooglePubSubPublisher` publica eventos SAGA via **REST API** do Pub/Sub (profile `gcp`).
+- Cloud Function processa `RESERVA_CRIADA` e registra código fictício nos logs.
+- Guia: [`infra/gcp/DEPLOY.md`](../infra/gcp/DEPLOY.md)
+
+### Local / desenvolvimento
+
+| Componente | Ferramenta |
+|---|---|
+| API + PostgreSQL | Docker Compose (`:8083`, `:5433`) |
+| Mensageria | **LocalStack SQS** (`veiculos-eventos`) |
+| Serverless | **LocalStack Lambda** (Node.js) |
+| Segredos | `.env` / variáveis de ambiente |
+
+- `SqsEventPublisher` publica eventos da SAGA na fila SQS quando `app.aws.sqs.enabled=true`.
+- `NoOpMessagePublisher` quando mensageria desabilitada.
+- Infra: `infra/localstack/init-aws.sh`, `docker-compose.yml`.
+
+### Alternativa AWS (documentada)
+
+Elastic Beanstalk + RDS + SQS + Lambda: [`infra/elasticbeanstalk/DEPLOY.md`](../infra/elasticbeanstalk/DEPLOY.md).
+
+> LocalStack e Docker **apoiam desenvolvimento**; a demonstração na nuvem está na **GCP**.
 
 ## 14. Observabilidade
 
-| Recurso | Endpoint |
+| Recurso | Endpoint / destino |
 |---|---|
-| Health | `GET /actuator/health` |
+| Health | `GET /actuator/health` (liveness + readiness + db) |
 | Info | `GET /actuator/info` |
-| Swagger UI | `/swagger-ui.html` |
+| Swagger UI | `/swagger-ui/index.html` |
 | OpenAPI | `/v3/api-docs` |
+| Logs (local) | stdout |
+| Logs (GCP) | **Cloud Logging** — JSON estruturado, `correlationId` em cada requisição |
 
-`OpenApiConfiguration` configura esquema Bearer JWT no Swagger.
+`OpenApiConfiguration` configura esquema Bearer JWT no Swagger.  
+Profile `gcp`: ver [`infra/gcp/LOGGING.md`](../infra/gcp/LOGGING.md).
 
 ## 15. Análise técnica e pontos de atenção
 
@@ -474,10 +504,11 @@ Itens resolvidos na FASE 5:
 3. ~~Handler genérico 204~~ — removido.
 4. ~~Sem código de pagamento / timeout~~ — `Pagamento`, scheduler, SAGA.
 5. ~~Sem testes / OpenAPI~~ — 8 testes + Swagger.
+6. ~~Sem deploy na nuvem~~ — **GCP Cloud Run** ativo + Pub/Sub + Cloud Function E2E.
 
 Pontos ainda recomendados:
 
 1. **Typos de nomenclatura:** pacote `dto.ReervaVendaVeiculo`, `OperacaoNaoPemitidaExecption`, `GenerciController`, campo `celula`.
 2. **Vínculo usuário ↔ cliente** para isolamento de dados por titular.
 3. **Migrações Flyway/Liquibase** em produção (`ddl-auto: validate`).
-4. **Deploy App Runner** como evidência em nuvem real.
+4. **Hardening enterprise:** Identity Platform, Cloud Armor, VPC privada, Cloud KMS.

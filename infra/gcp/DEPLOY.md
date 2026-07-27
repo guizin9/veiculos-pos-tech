@@ -38,14 +38,14 @@ A aplicação permanece um **monólito Spring Boot**; apenas a infraestrutura de
 | Serviço | Tier sugerido | Custo aproximado/mês |
 |---------|---------------|----------------------|
 | Cloud Run | escala a zero, 512 MiB | US$ 0–5 (idle ≈ US$ 0) |
-| Cloud SQL | `db-f1-micro`, PostgreSQL 16 | US$ 7–12 |
+| Cloud SQL | `db-f1-micro` (recomendado demo) | US$ 7–12 |
 | Pub/Sub | baixo volume | US$ 0 (free tier) |
 | Cloud Function | Gen2, esporádica | US$ 0 (free tier) |
 | Artifact Registry | 1 imagem ~500 MB | US$ 0,05–0,15 |
 | Secret Manager | 2 segredos | US$ 0,10 |
-| **Total** | | **~US$ 8–18/mês** |
+| **Total (tier mínimo)** | | **~US$ 8–18/mês** |
 
-> Desligue Cloud SQL quando não estiver usando (`gcloud sql instances patch veiculos-db --activation-policy=NEVER`).
+> **Produção atual (`veiculos-pos-tech`):** instância `veiculos-pos-tech-project`, user `veiculos_user`, tier `db-custom-2-8192` (~US$ 50–70/mês só do SQL). Para reduzir custo, use `db-f1-micro` ou desligue quando idle: `gcloud sql instances patch veiculos-pos-tech-project --activation-policy=NEVER`.
 
 ---
 
@@ -76,8 +76,8 @@ cd c:\Cursos\Projetos\Java\veiculos\infra\gcp
 ### Console (recomendado na 1ª vez)
 
 1. **SQL** → Criar instância → **PostgreSQL 16**
-2. ID: `veiculos-db` · Região: `us-central1` · Tier: **Shared core / db-f1-micro**
-3. Banco: `veiculos` · Usuário: `veiculos_app` (senha forte)
+2. ID: `veiculos-db` · Região: `us-central1` · Tier: **Shared core / db-f1-micro** (recomendado para demo)
+3. Banco: `veiculos` · Usuário: `veiculos_user` (senha forte)
 4. Conexões: **IP privado** ou **Cloud SQL Auth** (Cloud Run usa connector nativo)
 5. Anote o **Connection name**: `SEU_PROJETO:us-central1:veiculos-db`
 
@@ -96,7 +96,7 @@ gcloud sql instances create $INSTANCE `
   --storage-auto-increase
 
 gcloud sql databases create veiculos --instance=$INSTANCE
-gcloud sql users create veiculos_app --instance=$INSTANCE --password=SENHA_FORTE_AQUI
+gcloud sql users create veiculos_user --instance=$INSTANCE --password=SENHA_FORTE_AQUI
 ```
 
 Connection name:
@@ -197,7 +197,7 @@ Start-Process "$URL/swagger-ui.html"
 
 ```
 [ ] setup-apis.ps1
-[ ] Cloud SQL criado + banco veiculos + usuário veiculos_app
+[ ] Cloud SQL criado + banco veiculos + usuário veiculos_user
 [ ] SECRETS.md — segredos + IAM
 [ ] setup-artifact-registry.ps1
 [ ] build-and-push.ps1

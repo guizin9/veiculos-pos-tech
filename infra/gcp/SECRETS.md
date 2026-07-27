@@ -19,7 +19,7 @@ Substitua `SEU_PROJETO` e use senhas fortes geradas localmente (não as cole aqu
 $PROJECT = "SEU_PROJETO"
 gcloud config set project $PROJECT
 
-# Senha do usuário Cloud SQL (veiculos_app)
+# Senha do usuário Cloud SQL (veiculos_user)
 "SUASENHA_DB_FORTE" | gcloud secrets create veiculos-db-password --data-file=-
 
 # JWT HMAC — mínimo 32 caracteres
@@ -61,7 +61,7 @@ gcloud secrets add-iam-policy-binding veiculos-jwt-secret `
 gcloud run deploy veiculos-api `
   --image REGION-docker.pkg.dev/SEU_PROJETO/veiculos/api:latest `
   --region us-central1 `
-  --set-env-vars "SPRING_PROFILES_ACTIVE=gcp,GCP_PROJECT_ID=SEU_PROJETO,GCP_CLOUDSQL_INSTANCE=SEU_PROJETO:us-central1:veiculos-db,DB_USERNAME=veiculos_app,GCP_SECRET_MANAGER_ENABLED=true,GCP_SECRET_DB_PASSWORD=veiculos-db-password,GCP_SECRET_JWT=veiculos-jwt-secret" `
+  --set-env-vars "SPRING_PROFILES_ACTIVE=gcp,GCP_PROJECT_ID=SEU_PROJETO,GCP_CLOUDSQL_INSTANCE=SEU_PROJETO:us-central1:veiculos-db,DB_USERNAME=veiculos_user,GCP_SECRET_MANAGER_ENABLED=true,GCP_SECRET_DB_PASSWORD=veiculos-db-password,GCP_SECRET_JWT=veiculos-jwt-secret" `
   --add-cloudsql-instances SEU_PROJETO:us-central1:veiculos-db `
   --allow-unauthenticated
 ```
@@ -72,7 +72,7 @@ gcloud run deploy veiculos-api `
 gcloud run deploy veiculos-api `
   --image REGION-docker.pkg.dev/SEU_PROJETO/veiculos/api:latest `
   --region us-central1 `
-  --set-env-vars "SPRING_PROFILES_ACTIVE=gcp,GCP_PROJECT_ID=SEU_PROJETO,GCP_CLOUDSQL_INSTANCE=SEU_PROJETO:us-central1:veiculos-db,DB_USERNAME=veiculos_app,GCP_SECRET_MANAGER_ENABLED=false" `
+  --set-env-vars "SPRING_PROFILES_ACTIVE=gcp,GCP_PROJECT_ID=SEU_PROJETO,GCP_CLOUDSQL_INSTANCE=SEU_PROJETO:us-central1:veiculos-db,DB_USERNAME=veiculos_user,GCP_SECRET_MANAGER_ENABLED=false" `
   --set-secrets "DB_PASSWORD=veiculos-db-password:latest,JWT_SECRET=veiculos-jwt-secret:latest" `
   --add-cloudsql-instances SEU_PROJETO:us-central1:veiculos-db `
   --allow-unauthenticated

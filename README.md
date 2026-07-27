@@ -32,7 +32,7 @@ API REST para uma plataforma de revenda de veículos automotores. Permite cadast
 - **Estoque de veículos:** cadastrar, editar, listar e excluir veículos; listagem específica de **veículos à venda**.
 - **Compradores:** CRUD de clientes com dados pessoais, endereço e contatos.
 - **Processo de compra:** reserva → código de pagamento → confirmação de pagamento → venda → documentação de retirada → retirada; cancelamento e expiração automática com compensação (libera veículo).
-- **SAGA interna:** orquestrador no monólito (`CompraSagaOrchestrator`) com etapas, idempotência e validação de pagamento antes da venda; eventos publicados em SQS (LocalStack/AWS).
+- **SAGA interna:** orquestrador no monólito (`CompraSagaOrchestrator`) com etapas, idempotência e validação de pagamento antes da venda; eventos em Pub/Sub (GCP) ou SQS (LocalStack).
 - **Autenticação JWT** com papéis (`ADMIN`, `VENDEDOR`, `OPERADOR`, `CLIENTE`) e `@PreAuthorize` nos endpoints sensíveis.
 - **LGPD básico:** CPF validado/único, mascaramento na saída, logs SQL desligados.
 - **Listagens do processo** ordenadas por preço: reservados, vendidos, cancelados, pendentes de retirada e retirados.
@@ -49,7 +49,7 @@ API REST para uma plataforma de revenda de veículos automotores. Permite cadast
 | API Docs | springdoc-openapi 2.8.6 (Swagger UI) |
 | Persistência | Spring Data JPA / Hibernate |
 | Banco de dados | PostgreSQL (H2 em testes) |
-| Mensageria (SAGA) | AWS SDK SQS (+ LocalStack local) |
+| Mensageria (SAGA) | Pub/Sub (GCP produção) · AWS SQS (LocalStack local) |
 | Build | Maven (`spring-boot-maven-plugin`) |
 | Produtividade | Lombok, Spring Boot DevTools |
 | Container | Docker multi-stage (Java 21) |
@@ -271,7 +271,7 @@ Copie [`.env.example`](.env.example) para `.env`. Principais:
 
 ## Deploy GCP (Cloud Run)
 
-**Produção (veiculos-pos-tech):** https://veiculos-api-184616306282.us-central1.run.app
+**Produção (veiculos-pos-tech):** https://veiculos-api-k4f2n37iga-uc.a.run.app
 
 Guia completo: [`infra/gcp/DEPLOY.md`](infra/gcp/DEPLOY.md)
 
