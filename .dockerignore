@@ -1,0 +1,12 @@
+target/
+.git/
+.idea/
+.vscode/
+*.iml
+*.log
+.env
+docs/
+infra/localstack/*.zip
+Thumbs.db
+.DS_Store
+README.md

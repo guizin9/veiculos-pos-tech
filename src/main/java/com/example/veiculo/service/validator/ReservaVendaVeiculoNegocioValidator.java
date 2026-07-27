@@ -2,6 +2,7 @@ package com.example.veiculo.service.validator;
 
 import com.example.veiculo.geral.config.Libs;
 import com.example.veiculo.geral.config.exception.personal.ErroGeralException;
+import com.example.veiculo.geral.config.exception.personal.OperacaoNaoPemitidaExecption;
 import com.example.veiculo.geral.config.exception.personal.RegistroDuplicadoException;
 import com.example.veiculo.geral.config.exception.personal.RegistroSemIntegridadeException;
 import com.example.veiculo.model.ReservaVendaVeiculo;
@@ -25,7 +26,9 @@ public class ReservaVendaVeiculoNegocioValidator {
 
     public void validarNegocioInclusao(ReservaVendaVeiculo tbEntrada) {
        if (!veiculoRepository.existsById(tbEntrada.getVeiculo().getId())) throw new RegistroSemIntegridadeException("O veículo informado é inválido!");
-       if (!clienteRepository.existsById(tbEntrada.getCliente().getId())) throw new RegistroSemIntegridadeException("O cliente informado é inválido!");
+       var cliente = clienteRepository.findById(tbEntrada.getCliente().getId())
+               .orElseThrow(() -> new RegistroSemIntegridadeException("O cliente informado é inválido!"));
+       if (!cliente.isAtivo()) throw new OperacaoNaoPemitidaExecption("O cliente informado não está ativo. A venda só é permitida para compradores cadastrados e ativos.");
        if (!veiculoRepository.existsByIdAndValor(tbEntrada.getVeiculo().getId(), tbEntrada.getValor())) throw new RegistroSemIntegridadeException("O valor informado está divergente do valor cadastrado para o veículo!");
        if (reservaVendaVeiculoRepository.existsByVeiculoIdAndStatus(tbEntrada.getVeiculo().getId(), "R")) throw new RegistroDuplicadoException("Já existe um Reserva cadastrada com o veículo informado!");
        if (reservaVendaVeiculoRepository.existsByVeiculoIdAndStatus(tbEntrada.getVeiculo().getId(), "V")) throw new RegistroDuplicadoException("Já existe um Venda realizada com o veículo informado!");

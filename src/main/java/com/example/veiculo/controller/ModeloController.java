@@ -10,6 +10,7 @@ import com.example.veiculo.service.ModeloService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
@@ -42,6 +43,7 @@ public class ModeloController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> incluir(@RequestBody @Valid ModeloDtoEntrada modeloDtoEntrada) {
         var tbEntrada = ModeloDtoEntrada.ConverteDto(modeloDtoEntrada, null);
         modeloDadosValidator.validaDados(new Modelo(), tbEntrada, Libs.TpOpe.INCLUSAO);
@@ -50,6 +52,7 @@ public class ModeloController {
     }
 
     @PutMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> alterar(@PathVariable Long id, @RequestBody @Valid ModeloDtoEntrada modeloDtoEntrada) {
         return modeloService.obterModeloPorId(id, true)
                 .map(tbInterna -> {
@@ -61,6 +64,7 @@ public class ModeloController {
     }
 
     @DeleteMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> excluir(@PathVariable Long id) {
         modeloDadosValidator.validaId(id, Libs.TpOpe.EXCLUSAO);
         if (!modeloService.excluir(id)) return ResponseEntity.notFound().build();

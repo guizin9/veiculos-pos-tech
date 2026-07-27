@@ -1,0 +1,14 @@
+{
+  "AWSEBDockerrunVersion": "1",
+  "Image": {
+    "Name": "637423599009.dkr.ecr.us-east-1.amazonaws.com/veiculos-pos-tech:latest",
+    "Update": "true"
+  },
+  "Ports": [
+    {
+      "ContainerPort": 8083,
+      "HostPort": 8083
+    }
+  ],
+  "Logging": "/tmp/veiculos"
+}

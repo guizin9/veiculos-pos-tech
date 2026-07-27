@@ -10,6 +10,7 @@ import com.example.veiculo.service.MarcaService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.OffsetDateTime;
@@ -42,6 +43,7 @@ public class MarcaController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> incluir(@RequestBody @Valid MarcaDtoEntrada marcaDtoEntrada) {
         var tbEntrada = MarcaDtoEntrada.ConverteDto(marcaDtoEntrada, null);
         marcaDadosValidator.validaDados(new Marca(), tbEntrada, Libs.TpOpe.INCLUSAO);
@@ -50,6 +52,7 @@ public class MarcaController {
     }
 
     @PutMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> alterar(@PathVariable Long id, @RequestBody @Valid MarcaDtoEntrada marcaDtoEntrada) {
         return marcaService.obterMarcaPorId(id, true)
                 .map(tbInterna -> {
@@ -61,6 +64,7 @@ public class MarcaController {
     }
 
     @DeleteMapping("{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERADOR')")
     public ResponseEntity<Object> excluir(@PathVariable Long id) {
         marcaDadosValidator.validaId(id, Libs.TpOpe.EXCLUSAO);
         if (!marcaService.excluir(id)) return ResponseEntity.notFound().build();

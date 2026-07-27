@@ -11,7 +11,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authorization.AuthorizationDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -30,15 +35,11 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     private static final String MSG_ERRO_GENERICA_USUARIO_FINAL =
             "Ocorreu um erro interno inesperado no sistema. Tente novamente e se o problema persistir, entre em contato com o administrador do sistema.";
     @Autowired private MessageSource messageSource;
-
-    @ExceptionHandler(Exception.class)
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public ErroRespostaDto handleException(Exception e) {
-        return ErroRespostaDto.conflito(e.getMessage());
-    }
 
     @ExceptionHandler(RegistroDuplicadoException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
@@ -96,9 +97,29 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ErroRespostaDto.conflito(e.getMessage());
     }
 
+    @ExceptionHandler(BadCredentialsException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ErroRespostaDto handleBadCredentials(BadCredentialsException e) {
+        return new ErroRespostaDto(HttpStatus.UNAUTHORIZED.value(), "Usuário ou senha inválidos", List.of());
+    }
+
+    @ExceptionHandler(DisabledException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ErroRespostaDto handleDisabledUser(DisabledException e) {
+        return new ErroRespostaDto(HttpStatus.FORBIDDEN.value(), "Usuário desativado", List.of());
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ErroRespostaDto handleAuthenticationException(AuthenticationException e) {
+        log.warn("Falha de autenticação: {}", e.getMessage());
+        return new ErroRespostaDto(HttpStatus.UNAUTHORIZED.value(), "Usuário ou senha inválidos", List.of());
+    }
+
     @ExceptionHandler(RuntimeException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErroRespostaDto handRuntimeException(RuntimeException e) { // Erro não tratado
+        log.error("Erro não tratado", e);
         return new ErroRespostaDto(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Ocorreu um erro inesperado, entre em contato com a administração do sistema", List.of());
     }
 

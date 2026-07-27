@@ -1,5 +1,7 @@
 package com.example.veiculo.service.validator;
 
+import com.example.veiculo.geral.config.CpfUtil;
+import com.example.veiculo.geral.config.exception.personal.CampoInvalidoException;
 import com.example.veiculo.geral.config.exception.personal.ErroGeralException;
 import com.example.veiculo.geral.config.exception.personal.RegistroDuplicadoException;
 import com.example.veiculo.model.Cliente;
@@ -19,14 +21,21 @@ public class ClienteNegocioValidator {
     private final ReservaVendaVeiculoRepository reservaVendaVeiculoRepository;
 
     public void validarNegocioInclusao(Cliente tbEntrada) {
+        validarCpf(tbEntrada.getCpf());
         if (clienteRepository.existsByNome(tbEntrada.getNome())) throw new RegistroDuplicadoException("Já existe um cliente cadastrado com o nome informado!");
         if (clienteRepository.existsByCpf(tbEntrada.getCpf() )) throw new RegistroDuplicadoException("Já existe um cliente cadastrado com o CPF informado!");
     }
 
     public void validarNegocioAlteracao(Cliente tbEntrada) {
 //        validarDataOperacao(tbEntrada.getId(), tbEntrada.getDtOpera());
+        validarCpf(tbEntrada.getCpf());
         if (clienteRepository.existsByNomeAndIdNot(tbEntrada.getNome(), tbEntrada.getId())) throw new RegistroDuplicadoException("Existe outro cliente cadastrado com o nome informado!");
         if (clienteRepository.existsByCpfAndIdNot (tbEntrada.getCpf() , tbEntrada.getId())) throw new RegistroDuplicadoException("Existe outro cliente cadastrado com o CPF informado!");
+    }
+
+    private void validarCpf(String cpf) {
+        if (cpf != null && !cpf.isBlank() && !CpfUtil.isValido(cpf))
+            throw new CampoInvalidoException("cpf", "CPF inválido");
     }
 
     public void validarNegocioExclusao(Long id) { validaSeUsadoPorOutraEntidade(id); }

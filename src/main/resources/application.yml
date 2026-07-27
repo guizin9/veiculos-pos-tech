@@ -6,25 +6,81 @@ spring:
   application:
       name: Veículos API
   datasource:
-    url: jdbc:postgresql://localhost:5433/veiculos
-    username: postgres
-    password: postgres
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/veiculos}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
   jpa:
-    show-sql: true
+    show-sql: false
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
-        format_sql: true
-        use_sql_comments: true
+        format_sql: false
+        use_sql_comments: false
 server:
-  port: 8083
+  # Cloud Run injeta PORT; localmente use SERVER_PORT ou PORT
+  port: ${PORT:${SERVER_PORT:8083}}
   servlet:
     session:
      tracking-modes: cookie
 
 logging:
   level:
-    org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
+    # SQL e bind ficam em WARN para não vazar dados pessoais (LGPD) nos logs
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+
+# Configurações de negócio da compra (Processo/SAGA)
+app:
+  jwt:
+    # Segredo HMAC (mínimo 32 caracteres). Em produção use variável de ambiente / Secrets Manager.
+    secret: ${JWT_SECRET:troque-este-segredo-para-um-valor-forte-com-32+chars}
+    expiracao-min: ${JWT_EXPIRACAO_MIN:120}
+  reserva:
+    # Tempo (em minutos) até a reserva/pagamento expirar
+    minutos-expiracao: ${RESERVA_MINUTOS_EXPIRACAO:30}
+    # Intervalo (ms) da verificação automática de expiração
+    intervalo-verificacao-ms: ${RESERVA_INTERVALO_VERIFICACAO_MS:60000}
+  aws:
+    enabled: ${AWS_ENABLED:false}
+    endpoint: ${AWS_ENDPOINT:}
+    region: ${AWS_REGION:us-east-1}
+    access-key: ${AWS_ACCESS_KEY_ID:}
+    secret-key: ${AWS_SECRET_ACCESS_KEY:}
+    sqs:
+      enabled: ${AWS_SQS_ENABLED:false}
+      queue-name: ${AWS_SQS_QUEUE_NAME:veiculos-eventos}
+      queue-url: ${AWS_SQS_QUEUE_URL:}
+      poll-interval-ms: ${AWS_SQS_POLL_INTERVAL_MS:5000}
+    secrets-manager:
+      enabled: ${AWS_SECRETS_ENABLED:false}
+      secret-name: ${AWS_SECRET_NAME:veiculos/app}
+  gcp:
+    enabled: ${GCP_ENABLED:false}
+    project-id: ${GCP_PROJECT_ID:}
+    cloud-sql:
+      instance-connection-name: ${GCP_CLOUDSQL_INSTANCE:}
+      database-name: ${GCP_CLOUDSQL_DATABASE:veiculos}
+    secret-manager:
+      enabled: ${GCP_SECRET_MANAGER_ENABLED:false}
+      db-password-secret: ${GCP_SECRET_DB_PASSWORD:}
+      jwt-secret: ${GCP_SECRET_JWT:}
+    pubsub:
+      enabled: ${GCP_PUBSUB_ENABLED:false}
+      topic-id: ${GCP_PUBSUB_TOPIC:veiculos-eventos}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+
+info:
+  app:
+    name: Veículos API
+    description: API de revenda de veículos — FASE 5
+    version: 0.0.1-SNAPSHOT

@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: veiculos-postgres
+    environment:
+      POSTGRES_DB: veiculos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d veiculos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  localstack:
+    image: localstack/localstack:3
+    container_name: veiculos-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: sqs,lambda,secretsmanager,logs,iam
+      DEBUG: "0"
+    volumes:
+      - "./infra/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh"
+      - "./infra/lambda/gerar-codigo-pagamento:/etc/localstack/init/ready.d/lambda"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build: .
+    container_name: veiculos-api
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      PORT: "8083"
+      DB_URL: jdbc:postgresql://postgres:5432/veiculos
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: troque-este-segredo-para-um-valor-forte-com-32+chars
+      AWS_ENABLED: "true"
+      AWS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_SQS_ENABLED: "true"
+      AWS_SQS_QUEUE_NAME: veiculos-eventos
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  pgdata:

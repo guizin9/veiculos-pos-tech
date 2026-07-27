@@ -6,9 +6,13 @@ import com.example.veiculo.dto.ReervaVendaVeiculo.VeiculoMarcaModeloVersaoDtoSai
 import com.example.veiculo.dto.ReervaVendaVeiculo.VeiculoMarcaModeloVersaoQtdeEstoqueDtoSaida;
 import com.example.veiculo.geral.config.Libs;
 import com.example.veiculo.geral.config.exception.personal.RegistroNaoEncontradoException;
+import com.example.veiculo.messaging.SagaEvent;
+import com.example.veiculo.messaging.SagaEventBus;
+import com.example.veiculo.messaging.SagaEventType;
 import com.example.veiculo.model.ReservaVendaVeiculo;
 import com.example.veiculo.repository.ReservaVendaVeiculoRepository;
 import com.example.veiculo.repository.VeiculoRepository;
+import com.example.veiculo.saga.CompraSagaOrchestrator;
 import com.example.veiculo.service.validator.ReservaVendaVeiculoNegocioValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -26,6 +30,10 @@ public class ReservaVendaVeiculoService {
     private final ReservaVendaVeiculoRepository reservaVendaVeiculoRepository;
     private final ReservaVendaVeiculoNegocioValidator veiculoNegocioValidator;
     private final VeiculoRepository veiculoRepository;
+    private final PagamentoService pagamentoService;
+    private final DocumentacaoRetiradaService documentacaoRetiradaService;
+    private final SagaEventBus sagaEventBus;
+    private final CompraSagaOrchestrator sagaOrchestrator;
 
     public Optional<ReservaVendaVeiculo> obterReservaVendaVeiculoPorId(Long id) { return obterReservaVendaVeiculoPorId(id, false); }
     public Optional<ReservaVendaVeiculo> obterReservaVendaVeiculoPorId(Long id, boolean validaID) {
@@ -96,9 +104,20 @@ public class ReservaVendaVeiculoService {
         tbEntrada.setRetirado("N");
         tbEntrada.setDtOpera(OffsetDateTime.now());
         tbEntrada.setDtReserva(tbEntrada.getDtOpera());
-        var veiculo = veiculoRepository.findById(tbEntrada.getVeiculo().getId());
-        veiculo.get().reservaVeiculo();
-        return reservaVendaVeiculoRepository.save(tbEntrada);
+        var veiculo = veiculoRepository.findById(tbEntrada.getVeiculo().getId()).orElseThrow();
+        veiculo.reservaVeiculo();
+        veiculo.setDtOpera(tbEntrada.getDtOpera());
+        veiculoRepository.save(veiculo);
+        var reservaSalva = reservaVendaVeiculoRepository.save(tbEntrada);
+        sagaOrchestrator.iniciar(reservaSalva.getId());
+        var pagamento = pagamentoService.gerarParaReserva(reservaSalva);
+        sagaOrchestrator.registrarPagamentoGerado(reservaSalva.getId());
+        sagaEventBus.publicar(SagaEvent.of(SagaEventType.RESERVA_CRIADA,
+                reservaSalva.getId(), reservaSalva.getCliente().getId(), reservaSalva.getVeiculo().getId()));
+        sagaEventBus.publicar(SagaEvent.of(SagaEventType.PAGAMENTO_GERADO,
+                reservaSalva.getId(), reservaSalva.getCliente().getId(), reservaSalva.getVeiculo().getId(),
+                pagamento.getCodigo()));
+        return reservaSalva;
     }
 
     @Transactional
@@ -112,12 +131,20 @@ public class ReservaVendaVeiculoService {
     @Transactional
     public boolean confirmaVenda(ReservaVendaVeiculo reservaVendaVeiculo) {
         veiculoNegocioValidator.validarNegocioConfirmaVenda(reservaVendaVeiculo);
+        sagaOrchestrator.validarPodeConfirmarVenda(reservaVendaVeiculo.getId());
         var dtOpera = OffsetDateTime.now();
         reservaVendaVeiculo.setDtVenda(dtOpera);
         reservaVendaVeiculo.setDtOpera(dtOpera);
         reservaVendaVeiculo.vendaVeiculo();
-        reservaVendaVeiculo.getVeiculo().setDtOpera(dtOpera);
-        reservaVendaVeiculo.getVeiculo().vendaVeiculo();
+        var veiculo = veiculoRepository.findById(reservaVendaVeiculo.getVeiculo().getId()).orElseThrow();
+        veiculo.setDtOpera(dtOpera);
+        veiculo.vendaVeiculo();
+        veiculoRepository.save(veiculo);
+        reservaVendaVeiculoRepository.save(reservaVendaVeiculo);
+        sagaOrchestrator.registrarVenda(reservaVendaVeiculo.getId());
+        sagaEventBus.publicar(SagaEvent.of(SagaEventType.VENDA_CONFIRMADA,
+                reservaVendaVeiculo.getId(), reservaVendaVeiculo.getCliente().getId(),
+                reservaVendaVeiculo.getVeiculo().getId()));
         return true;
     }
 
@@ -125,9 +152,16 @@ public class ReservaVendaVeiculoService {
     public boolean retiraVeiculo(ReservaVendaVeiculo reservaVendaVeiculo) {
         veiculoNegocioValidator.validarNegocioRetiraVeiculo(reservaVendaVeiculo);
         var dtOpera = OffsetDateTime.now();
-        reservaVendaVeiculo.setDtReserva(dtOpera);
+        reservaVendaVeiculo.setDtRetirada(dtOpera);
         reservaVendaVeiculo.setDtOpera(dtOpera);
-        reservaVendaVeiculo.retiradaVeiculo();;
+        reservaVendaVeiculo.retiradaVeiculo();
+        reservaVendaVeiculoRepository.save(reservaVendaVeiculo);
+        documentacaoRetiradaService.emitir(reservaVendaVeiculo);
+        sagaOrchestrator.registrarDocumentacao(reservaVendaVeiculo.getId());
+        sagaOrchestrator.registrarRetirada(reservaVendaVeiculo.getId());
+        sagaEventBus.publicar(SagaEvent.of(SagaEventType.DOCUMENTACAO_EMITIDA,
+                reservaVendaVeiculo.getId(), reservaVendaVeiculo.getCliente().getId(),
+                reservaVendaVeiculo.getVeiculo().getId()));
         return true;
     }
 
@@ -138,8 +172,16 @@ public class ReservaVendaVeiculoService {
         reservaVendaVeiculo.setDtCancelamento(dtOpera);
         reservaVendaVeiculo.setDtOpera(dtOpera);
         reservaVendaVeiculo.cancelaVeiculo();
-        reservaVendaVeiculo.getVeiculo().setDtOpera(dtOpera);
-        reservaVendaVeiculo.getVeiculo().ativaVeiculo();
+        var veiculo = veiculoRepository.findById(reservaVendaVeiculo.getVeiculo().getId()).orElseThrow();
+        veiculo.setDtOpera(dtOpera);
+        veiculo.ativaVeiculo();
+        veiculoRepository.save(veiculo);
+        reservaVendaVeiculoRepository.save(reservaVendaVeiculo);
+        pagamentoService.cancelarPorReserva(reservaVendaVeiculo.getId());
+        sagaOrchestrator.compensarCancelamento(reservaVendaVeiculo.getId());
+        sagaEventBus.publicar(SagaEvent.of(SagaEventType.RESERVA_CANCELADA,
+                reservaVendaVeiculo.getId(), reservaVendaVeiculo.getCliente().getId(),
+                reservaVendaVeiculo.getVeiculo().getId()));
         return true;
     }
 
